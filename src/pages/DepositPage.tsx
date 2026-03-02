@@ -92,24 +92,21 @@ export default function DepositPage() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const { data: { session } } = await supabase.auth.getSession();
-      const uploadRes = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/upload-deposit-proof`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${session?.access_token}` },
-          body: formData,
-        }
-      );
+      const { data: uploadData, error: uploadError } = await supabase.functions.invoke("upload-deposit-proof", {
+        body: formData,
+      });
 
-      if (!uploadRes.ok) {
-        const err = await uploadRes.json();
-        toast({ title: "Upload failed", description: err.error || "Upload failed", variant: "destructive" });
+      if (uploadError || !uploadData?.path) {
+        toast({
+          title: "Upload failed",
+          description: uploadError?.message || "Upload failed",
+          variant: "destructive",
+        });
         setSubmitting(false);
         return;
       }
 
-      const { path: filePath } = await uploadRes.json();
+      const filePath = uploadData.path as string;
 
       const { error: insertError } = await supabase.from("deposits").insert({
         user_id: user.id,
@@ -167,7 +164,7 @@ export default function DepositPage() {
                 {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
               </div>
             </div>
-            <Button onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90">
+            <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90">
               {submitting ? "Submitting..." : "Submit Deposit"}
             </Button>
           </div>

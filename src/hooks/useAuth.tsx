@@ -64,8 +64,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userChanged = lastSessionUserIdRef.current !== nextUserId;
           lastSessionUserIdRef.current = nextUserId;
 
-          // Fetch role/profile on explicit sign-in OR whenever session user changes
+          // Prevent admin/user redirect race by marking role as loading immediately
           if (event === "SIGNED_IN" || userChanged) {
+            setRoleLoading(true);
             setTimeout(() => {
               if (isMounted) fetchUserData(nextUserId);
             }, 0);
@@ -74,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           lastSessionUserIdRef.current = null;
           setIsAdmin(false);
           setProfile(null);
+          setRoleLoading(false);
         }
       }
     );
