@@ -1,0 +1,19 @@
+project_id = "tflqruwrfplrsfasfbia"
+
+[functions.totp-setup]
+verify_jwt = false
+
+[functions.totp-verify]
+verify_jwt = false
+
+[functions.auth-with-totp]
+verify_jwt = false
+
+[functions.approve-deposit]
+verify_jwt = false
+
+[functions.approve-withdrawal]
+verify_jwt = false
+
+[functions.upload-deposit-proof]
+verify_jwt = false
