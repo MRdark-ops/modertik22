@@ -9,8 +9,8 @@ import { useQuery } from "@tanstack/react-query";
 export default function UserDashboard() {
   const { user, profile } = useAuth();
 
-  const { data: deposits = [] } = useQuery({
-    queryKey: ["deposits", user?.id],
+  const { data: recentDeposits = [] } = useQuery({
+    queryKey: ["recent-deposits", user?.id],
     queryFn: async () => {
       const { data } = await supabase
         .from("deposits")
@@ -22,8 +22,20 @@ export default function UserDashboard() {
     enabled: !!user,
   });
 
-  const { data: withdrawals = [] } = useQuery({
-    queryKey: ["withdrawals", user?.id],
+  const { data: allApprovedDeposits = [] } = useQuery({
+    queryKey: ["all-approved-deposits", user?.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("deposits")
+        .select("amount")
+        .eq("status", "approved");
+      return data || [];
+    },
+    enabled: !!user,
+  });
+
+  const { data: recentWithdrawals = [] } = useQuery({
+    queryKey: ["recent-withdrawals", user?.id],
     queryFn: async () => {
       const { data } = await supabase
         .from("withdrawals")
@@ -60,21 +72,19 @@ export default function UserDashboard() {
   });
 
   const balance = profile?.balance ?? 0;
-  const totalDeposits = deposits
-    .filter((d: any) => d.status === "approved")
-    .reduce((sum: number, d: any) => sum + Number(d.amount), 0);
+  const totalDeposits = allApprovedDeposits.reduce((sum: number, d: any) => sum + Number(d.amount), 0);
   const totalCommissions = commissions.reduce((sum: number, c: any) => sum + Number(c.commission_amount), 0);
 
   // Build recent transactions from deposits + withdrawals + commissions
   const recentTransactions = [
-    ...deposits.map((d: any) => ({
+    ...recentDeposits.map((d: any) => ({
       id: d.id,
       type: "Deposit" as const,
       amount: Number(d.amount),
       status: d.status,
       date: d.created_at,
     })),
-    ...withdrawals.map((w: any) => ({
+    ...recentWithdrawals.map((w: any) => ({
       id: w.id,
       type: "Withdrawal" as const,
       amount: Number(w.amount),
@@ -99,7 +109,7 @@ export default function UserDashboard() {
           <StatCard title="Account Balance" value={`$${Number(balance).toFixed(2)}`} icon={Wallet} />
           <StatCard title="Total Earnings" value={`$${totalCommissions.toFixed(2)}`} icon={TrendingUp} />
           <StatCard title="Referral Earnings" value={`$${totalCommissions.toFixed(2)}`} icon={Users} subtitle={`${referralCount} total referrals`} />
-          <StatCard title="Total Deposits" value={`$${totalDeposits.toFixed(2)}`} icon={DollarSign} subtitle={`${deposits.length} deposits`} />
+          <StatCard title="Total Deposits" value={`$${totalDeposits.toFixed(2)}`} icon={DollarSign} subtitle={`${allApprovedDeposits.length} deposits`} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
