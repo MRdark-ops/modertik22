@@ -16,7 +16,7 @@ const BTC_ADDRESS_REGEX = /^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$/;
 const TRX_ADDRESS_REGEX = /^T[a-zA-HJ-NP-Z0-9]{33}$/;
 
 const withdrawSchema = z.object({
-  amount: z.number({ invalid_type_error: "Please enter a valid amount" }).min(50, "Minimum withdrawal is $50").max(10000, "Maximum withdrawal is $10,000"),
+  amount: z.number({ invalid_type_error: "Please enter a valid amount" }).min(2.5, "Minimum withdrawal is $2.50").max(10000, "Maximum withdrawal is $10,000"),
   walletAddress: z.string()
     .min(26, "Wallet address is too short")
     .max(62, "Wallet address is too long")
@@ -102,13 +102,13 @@ export default function WithdrawPage() {
               </div>
               <div className="flex justify-between text-sm mt-1">
                 <span className="text-muted-foreground">Minimum Withdrawal</span>
-                <span>$50.00</span>
+                <span>$2.50</span>
               </div>
             </div>
             <div className="space-y-2">
               <Label className="text-sm text-muted-foreground">Withdrawal Amount (USD)</Label>
-              <Input type="number" placeholder="50.00" value={amount} onChange={e => setAmount(e.target.value)}
-                className={`bg-secondary border-border focus:border-primary h-11 ${errors.amount ? 'border-destructive' : ''}`} min="50" max="10000" step="0.01" disabled={submitting} />
+              <Input type="number" placeholder="2.50" value={amount} onChange={e => setAmount(e.target.value)}
+                className={`bg-secondary border-border focus:border-primary h-11 ${errors.amount ? 'border-destructive' : ''}`} min="2.5" max="10000" step="0.01" disabled={submitting} />
               {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
             </div>
             <div className="space-y-2">
