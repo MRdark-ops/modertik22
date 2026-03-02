@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const ALLOWED_ORIGINS = [
+  "https://modertik5.lovable.app",
   "https://modertin.lovable.app",
   "https://id-preview--61efc4ae-bed6-4fa9-9299-7ce90d249e3f.lovable.app",
   "http://localhost:5173",
