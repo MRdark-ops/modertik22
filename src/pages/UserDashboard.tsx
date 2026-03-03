@@ -52,7 +52,7 @@ export default function UserDashboard() {
     queryFn: async () => {
       const { data } = await supabase
         .from("referral_commissions")
-        .select("level, commission_amount")
+        .select("commission_amount")
         .eq("referrer_id", user!.id);
       return data || [];
     },
@@ -65,7 +65,8 @@ export default function UserDashboard() {
       const { count } = await supabase
         .from("referrals")
         .select("*", { count: "exact", head: true })
-        .eq("referrer_id", user!.id);
+        .eq("referrer_id", user!.id)
+        .eq("level", 1);
       return count || 0;
     },
     enabled: !!user,
@@ -75,32 +76,16 @@ export default function UserDashboard() {
   const totalDeposits = allApprovedDeposits.reduce((sum: number, d: any) => sum + Number(d.amount), 0);
   const totalCommissions = commissions.reduce((sum: number, c: any) => sum + Number(c.commission_amount), 0);
 
-  // Build recent transactions from deposits + withdrawals + commissions
   const recentTransactions = [
     ...recentDeposits.map((d: any) => ({
-      id: d.id,
-      type: "Deposit" as const,
-      amount: Number(d.amount),
-      status: d.status,
-      date: d.created_at,
+      id: d.id, type: "Deposit" as const, amount: Number(d.amount), status: d.status, date: d.created_at,
     })),
     ...recentWithdrawals.map((w: any) => ({
-      id: w.id,
-      type: "Withdrawal" as const,
-      amount: Number(w.amount),
-      status: w.status,
-      date: w.created_at,
+      id: w.id, type: "Withdrawal" as const, amount: Number(w.amount), status: w.status, date: w.created_at,
     })),
   ]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 5);
-
-  const COMMISSION_RATES = ["10%", "8%", "6%", "4%", "2%"];
-  const referralLevels = [1, 2, 3, 4, 5].map(level => ({
-    level,
-    rate: COMMISSION_RATES[level - 1],
-    earnings: commissions.filter((c: any) => c.level === level).reduce((s: number, c: any) => s + Number(c.commission_amount), 0),
-  }));
 
   return (
     <DashboardLayout title="Dashboard">
@@ -108,7 +93,7 @@ export default function UserDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard title="Account Balance" value={`$${Number(balance).toFixed(2)}`} icon={Wallet} />
           <StatCard title="Total Earnings" value={`$${totalCommissions.toFixed(2)}`} icon={TrendingUp} />
-          <StatCard title="Referral Earnings" value={`$${totalCommissions.toFixed(2)}`} icon={Users} subtitle={`${referralCount} total referrals`} />
+          <StatCard title="Referral Earnings" value={`$${totalCommissions.toFixed(2)}`} icon={Users} subtitle={`${referralCount} referrals × $2.50`} />
           <StatCard title="Total Deposits" value={`$${totalDeposits.toFixed(2)}`} icon={DollarSign} subtitle={`${allApprovedDeposits.length} deposits`} />
         </div>
 
@@ -143,21 +128,27 @@ export default function UserDashboard() {
           </div>
 
           <div className="glass-card p-6">
-            <h3 className="font-display text-lg font-semibold mb-4">Referral Earnings by Level</h3>
-            <div className="space-y-3">
-              {referralLevels.map(lvl => (
-                <div key={lvl.level} className="flex items-center justify-between py-3 border-b border-border last:border-0">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                      <span className="text-xs font-bold text-primary">L{lvl.level}</span>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">Level {lvl.level} ({lvl.rate})</p>
-                    </div>
+            <h3 className="font-display text-lg font-semibold mb-4">Referral Summary</h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between py-3 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Users className="w-5 h-5 text-primary" />
                   </div>
-                  <span className="text-sm font-semibold gold-gradient-text">${lvl.earnings.toFixed(2)}</span>
+                  <div>
+                    <p className="text-sm font-medium">Direct Referrals</p>
+                    <p className="text-xs text-muted-foreground">$2.50 per person</p>
+                  </div>
                 </div>
-              ))}
+                <div className="text-right">
+                  <p className="font-semibold">{referralCount} people</p>
+                  <p className="text-sm gold-gradient-text font-bold">${totalCommissions.toFixed(2)}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between pt-2">
+                <span className="font-semibold">Total Referral Earnings</span>
+                <span className="text-lg font-bold gold-gradient-text">${totalCommissions.toFixed(2)}</span>
+              </div>
             </div>
           </div>
         </div>
