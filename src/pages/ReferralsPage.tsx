@@ -6,8 +6,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 
-const COMMISSION_RATES = ["10%", "8%", "6%", "4%", "2%"];
-
 export default function ReferralsPage() {
   const [copied, setCopied] = useState(false);
   const { user, profile } = useAuth();
@@ -16,13 +14,15 @@ export default function ReferralsPage() {
     ? `${window.location.origin}/register?ref=${profile.referral_code}`
     : "";
 
-  const { data: referralData = [] } = useQuery({
-    queryKey: ["referral-stats", user?.id],
+  const { data: directReferrals = [] } = useQuery({
+    queryKey: ["direct-referrals", user?.id],
     queryFn: async () => {
       const { data } = await supabase
         .from("referrals")
-        .select("level, referred_id")
-        .eq("referrer_id", user!.id);
+        .select("referred_id, created_at")
+        .eq("referrer_id", user!.id)
+        .eq("level", 1)
+        .order("created_at", { ascending: false });
       return data || [];
     },
     enabled: !!user,
@@ -33,23 +33,14 @@ export default function ReferralsPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("referral_commissions")
-        .select("level, commission_amount")
+        .select("commission_amount, created_at, referred_id")
         .eq("referrer_id", user!.id);
       return data || [];
     },
     enabled: !!user,
   });
 
-  // Aggregate by level
-  const levelStats = [1, 2, 3, 4, 5].map(level => {
-    const count = referralData.filter(r => r.level === level).length;
-    const earnings = commissions
-      .filter(c => c.level === level)
-      .reduce((sum, c) => sum + Number(c.commission_amount), 0);
-    return { level, rate: COMMISSION_RATES[level - 1], count, earnings };
-  });
-
-  const totalEarnings = levelStats.reduce((sum, l) => sum + l.earnings, 0);
+  const totalEarnings = commissions.reduce((sum: number, c: any) => sum + Number(c.commission_amount), 0);
 
   const copyLink = () => {
     navigator.clipboard.writeText(referralLink);
@@ -64,7 +55,7 @@ export default function ReferralsPage() {
           <h3 className="font-display text-lg font-semibold mb-2 flex items-center gap-2">
             <Users className="w-5 h-5 text-primary" /> Your Referral Link
           </h3>
-          <p className="text-sm text-muted-foreground mb-4">Share this link to earn commissions on 5 levels!</p>
+          <p className="text-sm text-muted-foreground mb-4">Share this link to earn $2.50 for each person who signs up and deposits!</p>
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-secondary rounded-lg px-4 py-2.5 text-sm font-mono text-foreground/80 border border-border">
               {referralLink || "Loading..."}
@@ -76,23 +67,41 @@ export default function ReferralsPage() {
         </div>
 
         <div className="glass-card p-6">
-          <h3 className="font-display text-lg font-semibold mb-4">Commission by Level</h3>
-          <div className="space-y-3">
-            {levelStats.map(lvl => (
-              <div key={lvl.level} className="flex items-center justify-between py-3 border-b border-border last:border-0">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                    <span className="text-sm font-bold text-primary">L{lvl.level}</span>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Level {lvl.level} — {lvl.rate}</p>
-                    <p className="text-xs text-muted-foreground">{lvl.count} referrals</p>
-                  </div>
-                </div>
-                <span className="font-semibold gold-gradient-text">${lvl.earnings.toFixed(2)}</span>
+          <h3 className="font-display text-lg font-semibold mb-4">Referral Summary</h3>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-secondary/50 rounded-lg p-4 text-center">
+                <p className="text-2xl font-bold text-primary">{directReferrals.length}</p>
+                <p className="text-xs text-muted-foreground mt-1">Total Referrals</p>
               </div>
-            ))}
-            <div className="flex items-center justify-between pt-3">
+              <div className="bg-secondary/50 rounded-lg p-4 text-center">
+                <p className="text-2xl font-bold text-primary">$2.50</p>
+                <p className="text-xs text-muted-foreground mt-1">Per Referral</p>
+              </div>
+              <div className="bg-secondary/50 rounded-lg p-4 text-center">
+                <p className="text-2xl font-bold gold-gradient-text">${totalEarnings.toFixed(2)}</p>
+                <p className="text-xs text-muted-foreground mt-1">Total Earnings</p>
+              </div>
+            </div>
+
+            {directReferrals.length > 0 && (
+              <div className="mt-4">
+                <h4 className="text-sm font-medium mb-3">Recent Referrals</h4>
+                {directReferrals.slice(0, 10).map((ref: any, i: number) => (
+                  <div key={ref.referred_id} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <span className="text-xs font-bold text-primary">#{i + 1}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{new Date(ref.created_at).toLocaleDateString()}</p>
+                    </div>
+                    <span className="text-sm font-semibold gold-gradient-text">$2.50</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-3 border-t border-border">
               <span className="font-semibold">Total Earnings</span>
               <span className="text-lg font-bold gold-gradient-text">${totalEarnings.toFixed(2)}</span>
             </div>
