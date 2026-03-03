@@ -47,17 +47,6 @@ export default function UserDashboard() {
     enabled: !!user,
   });
 
-  const { data: commissions = [] } = useQuery({
-    queryKey: ["commissions", user?.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("referral_commissions")
-        .select("commission_amount")
-        .eq("referrer_id", user!.id);
-      return data || [];
-    },
-    enabled: !!user,
-  });
 
   const { data: referralCount = 0 } = useQuery({
     queryKey: ["referral-count", user?.id],
@@ -74,7 +63,7 @@ export default function UserDashboard() {
 
   const balance = profile?.balance ?? 0;
   const totalDeposits = allApprovedDeposits.reduce((sum: number, d: any) => sum + Number(d.amount), 0);
-  const totalCommissions = commissions.reduce((sum: number, c: any) => sum + Number(c.commission_amount), 0);
+  const totalCommissions = referralCount * 2.5;
 
   const recentTransactions = [
     ...recentDeposits.map((d: any) => ({

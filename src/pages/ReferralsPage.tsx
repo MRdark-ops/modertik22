@@ -28,19 +28,7 @@ export default function ReferralsPage() {
     enabled: !!user,
   });
 
-  const { data: commissions = [] } = useQuery({
-    queryKey: ["commissions", user?.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("referral_commissions")
-        .select("commission_amount, created_at, referred_id")
-        .eq("referrer_id", user!.id);
-      return data || [];
-    },
-    enabled: !!user,
-  });
-
-  const totalEarnings = commissions.reduce((sum: number, c: any) => sum + Number(c.commission_amount), 0);
+  const totalEarnings = directReferrals.length * 2.5;
 
   const copyLink = () => {
     navigator.clipboard.writeText(referralLink);

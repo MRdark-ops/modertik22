@@ -15,7 +15,7 @@ export default function AdminDashboard() {
     const [usersRes, depositsRes, withdrawalsRes, commissionsRes, visitsRes] = await Promise.all([
         supabase.from("profiles").select("id", { count: "exact", head: true }),
         supabase.from("deposits").select("amount").eq("status", "approved"),
-        supabase.from("withdrawals").select("amount"),
+        supabase.from("withdrawals").select("amount, status"),
         supabase.from("referral_commissions").select("commission_amount"),
         supabase.from("site_visits").select("id", { count: "exact", head: true }),
       ]);
@@ -38,25 +38,53 @@ export default function AdminDashboard() {
   const { data: pendingDeposits } = useQuery({
     queryKey: ["admin-pending-deposits"],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data: deposits } = await supabase
         .from("deposits")
-        .select("id, amount, created_at, user_id, profiles!inner(full_name)")
+        .select("id, amount, created_at, user_id")
         .eq("status", "pending")
         .order("created_at", { ascending: false })
         .limit(5);
-      return data ?? [];
+
+      if (!deposits || deposits.length === 0) return [];
+
+      const userIds = Array.from(new Set(deposits.map((d) => d.user_id)));
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, full_name")
+        .in("user_id", userIds);
+
+      const profileMap = new Map((profiles ?? []).map((p) => [p.user_id, p.full_name]));
+
+      return deposits.map((d) => ({
+        ...d,
+        full_name: profileMap.get(d.user_id) ?? "Unknown",
+      }));
     },
   });
 
   const { data: recentLogs } = useQuery({
     queryKey: ["admin-recent-activity"],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data: logs } = await supabase
         .from("activity_logs")
-        .select("id, action, details, created_at, user_id, profiles!inner(full_name)")
+        .select("id, action, details, created_at, user_id")
         .order("created_at", { ascending: false })
         .limit(5);
-      return data ?? [];
+
+      if (!logs || logs.length === 0) return [];
+
+      const userIds = Array.from(new Set(logs.map((l) => l.user_id)));
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, full_name")
+        .in("user_id", userIds);
+
+      const profileMap = new Map((profiles ?? []).map((p) => [p.user_id, p.full_name]));
+
+      return logs.map((log) => ({
+        ...log,
+        full_name: profileMap.get(log.user_id) ?? "Unknown",
+      }));
     },
   });
 
@@ -100,7 +128,7 @@ export default function AdminDashboard() {
               {pendingDeposits?.map((d: any) => (
                 <div key={d.id} className="flex items-center justify-between py-3 border-b border-border last:border-0">
                   <div>
-                    <p className="text-sm font-medium">{d.profiles?.full_name}</p>
+                    <p className="text-sm font-medium">{d.full_name}</p>
                     <p className="text-xs text-muted-foreground">{new Date(d.created_at).toLocaleDateString()}</p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -126,7 +154,7 @@ export default function AdminDashboard() {
               {recentLogs?.map((log: any) => (
                 <div key={log.id} className="flex items-center justify-between py-3 border-b border-border last:border-0">
                   <div>
-                    <p className="text-sm font-medium">{log.profiles?.full_name}</p>
+                    <p className="text-sm font-medium">{log.full_name}</p>
                     <p className="text-xs text-muted-foreground">{log.action.replace(/_/g, " ")}</p>
                   </div>
                   <div className="text-right">

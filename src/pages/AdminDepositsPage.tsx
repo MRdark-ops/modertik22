@@ -10,11 +10,25 @@ export default function AdminDepositsPage() {
   const { data: deposits } = useQuery({
     queryKey: ["admin-deposits"],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data: deposits } = await supabase
         .from("deposits")
-        .select("id, amount, status, created_at, proof_url, user_id, profiles!inner(full_name)")
+        .select("id, amount, status, created_at, proof_url, user_id")
         .order("created_at", { ascending: false });
-      return data ?? [];
+
+      if (!deposits || deposits.length === 0) return [];
+
+      const userIds = Array.from(new Set(deposits.map((d) => d.user_id)));
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, full_name")
+        .in("user_id", userIds);
+
+      const profileMap = new Map((profiles ?? []).map((p) => [p.user_id, p.full_name]));
+
+      return deposits.map((d) => ({
+        ...d,
+        full_name: profileMap.get(d.user_id) ?? "Unknown",
+      }));
     },
   });
 
@@ -48,7 +62,7 @@ export default function AdminDepositsPage() {
               <tbody>
                 {deposits?.map((d: any) => (
                   <tr key={d.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
-                    <td className="py-3 px-4 font-medium">{d.profiles?.full_name}</td>
+                    <td className="py-3 px-4 font-medium">{d.full_name}</td>
                     <td className="py-3 px-4 font-semibold">${Number(d.amount).toFixed(2)}</td>
                     <td className="py-3 px-4 text-primary text-xs underline cursor-pointer">{d.proof_url ? "View" : "-"}</td>
                     <td className="py-3 px-4 text-muted-foreground">{new Date(d.created_at).toLocaleDateString()}</td>
