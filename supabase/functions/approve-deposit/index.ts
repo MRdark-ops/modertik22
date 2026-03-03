@@ -15,7 +15,7 @@ function getCorsHeaders(req: Request) {
   };
 }
 
-const FLAT_REFERRAL_BONUS = 2.50; // flat $2.50 per direct referral
+
 
 Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -115,50 +115,8 @@ Deno.serve(async (req) => {
         .update({ balance: newBalance })
         .eq("user_id", deposit.user_id);
 
-      // Check if this is the FIRST approved deposit for this user
-      const { count: previousApproved } = await supabaseAdmin
-        .from("deposits")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", deposit.user_id)
-        .eq("status", "approved")
-        .neq("id", deposit_id);
-
-      // Only pay referral bonus on FIRST deposit
-      if ((previousApproved ?? 0) === 0) {
-        const { data: directReferrer } = await supabaseAdmin
-          .from("referrals")
-          .select("referrer_id")
-          .eq("referred_id", deposit.user_id)
-          .eq("level", 1)
-          .single();
-
-        if (directReferrer) {
-          // Create commission record
-          await supabaseAdmin.from("referral_commissions").insert({
-            referrer_id: directReferrer.referrer_id,
-            referred_id: deposit.user_id,
-            deposit_id: deposit_id,
-            level: 1,
-            rate: 0,
-            commission_amount: FLAT_REFERRAL_BONUS,
-            status: "paid",
-          });
-
-          // Credit referrer balance
-          const { data: refProfile } = await supabaseAdmin
-            .from("profiles")
-            .select("balance")
-            .eq("user_id", directReferrer.referrer_id)
-            .single();
-
-          if (refProfile) {
-            await supabaseAdmin
-              .from("profiles")
-              .update({ balance: parseFloat(refProfile.balance) + FLAT_REFERRAL_BONUS })
-              .eq("user_id", directReferrer.referrer_id);
-          }
-        }
-      }
+      // Referral reward is granted at signup (flat $2.50 per direct referral),
+      // so no commission payout is done during deposit approval.
 
       // Log activity
       await supabaseAdmin.from("activity_logs").insert({

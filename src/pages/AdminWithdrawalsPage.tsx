@@ -11,11 +11,25 @@ export default function AdminWithdrawalsPage() {
   const { data: withdrawals } = useQuery({
     queryKey: ["admin-withdrawals"],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data: withdrawals } = await supabase
         .from("withdrawals")
-        .select("id, amount, status, created_at, wallet_address, user_id, profiles!inner(full_name)")
+        .select("id, amount, status, created_at, wallet_address, user_id")
         .order("created_at", { ascending: false });
-      return data ?? [];
+
+      if (!withdrawals || withdrawals.length === 0) return [];
+
+      const userIds = Array.from(new Set(withdrawals.map((w) => w.user_id)));
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, full_name")
+        .in("user_id", userIds);
+
+      const profileMap = new Map((profiles ?? []).map((p) => [p.user_id, p.full_name]));
+
+      return withdrawals.map((w) => ({
+        ...w,
+        full_name: profileMap.get(w.user_id) ?? "Unknown",
+      }));
     },
   });
 
@@ -76,7 +90,7 @@ export default function AdminWithdrawalsPage() {
               <tbody>
                 {withdrawals?.map((w: any) => (
                   <tr key={w.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
-                    <td className="py-3 px-4 font-medium">{w.profiles?.full_name}</td>
+                    <td className="py-3 px-4 font-medium">{w.full_name}</td>
                     <td className="py-3 px-4 font-semibold">${Number(w.amount).toFixed(2)}</td>
                     <td className="py-3 px-4 text-muted-foreground">{new Date(w.created_at).toLocaleDateString()}</td>
                     <td className="py-3 px-4"><StatusBadge status={w.status as any} /></td>

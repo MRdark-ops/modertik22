@@ -148,7 +148,7 @@ export type Database = {
         Row: {
           commission_amount: number
           created_at: string
-          deposit_id: string
+          deposit_id: string | null
           id: string
           level: number
           rate: number
@@ -159,7 +159,7 @@ export type Database = {
         Insert: {
           commission_amount: number
           created_at?: string
-          deposit_id: string
+          deposit_id?: string | null
           id?: string
           level: number
           rate: number
@@ -170,7 +170,7 @@ export type Database = {
         Update: {
           commission_amount?: number
           created_at?: string
-          deposit_id?: string
+          deposit_id?: string | null
           id?: string
           level?: number
           rate?: number

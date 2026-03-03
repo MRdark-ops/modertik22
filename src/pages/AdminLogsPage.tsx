@@ -6,12 +6,26 @@ export default function AdminLogsPage() {
   const { data: logs } = useQuery({
     queryKey: ["admin-logs"],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data: logs } = await supabase
         .from("activity_logs")
-        .select("id, action, details, created_at, user_id, profiles!inner(full_name)")
+        .select("id, action, details, created_at, user_id")
         .order("created_at", { ascending: false })
         .limit(50);
-      return data ?? [];
+
+      if (!logs || logs.length === 0) return [];
+
+      const userIds = Array.from(new Set(logs.map((l) => l.user_id)));
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, full_name")
+        .in("user_id", userIds);
+
+      const profileMap = new Map((profiles ?? []).map((p) => [p.user_id, p.full_name]));
+
+      return logs.map((log) => ({
+        ...log,
+        full_name: profileMap.get(log.user_id) ?? "Unknown",
+      }));
     },
   });
 
@@ -31,7 +45,7 @@ export default function AdminLogsPage() {
               <tbody>
                 {logs?.map((log: any) => (
                   <tr key={log.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
-                    <td className="py-3 px-4 font-medium">{log.profiles?.full_name}</td>
+                    <td className="py-3 px-4 font-medium">{log.full_name}</td>
                     <td className="py-3 px-4">
                       <span className={`text-xs px-2 py-0.5 rounded ${
                         log.action.includes('rejected') || log.action.includes('failed') ? 'bg-destructive/10 text-destructive' :

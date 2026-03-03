@@ -16,10 +16,6 @@ export default function AdminReferralsPage() {
         .from("referrals")
         .select("referrer_id, referred_id, level");
 
-      // Get commissions
-      const { data: commissions } = await supabase
-        .from("referral_commissions")
-        .select("referrer_id, commission_amount");
 
       if (!profiles) return [];
 
@@ -34,8 +30,8 @@ export default function AdminReferralsPage() {
       });
 
       const totalCommission: Record<string, number> = {};
-      commissions?.forEach((c) => {
-        totalCommission[c.referrer_id] = (totalCommission[c.referrer_id] || 0) + Number(c.commission_amount);
+      Object.keys(directRefs).forEach((uid) => {
+        totalCommission[uid] = directRefs[uid] * 2.5;
       });
 
       // Only show users that have referrals
