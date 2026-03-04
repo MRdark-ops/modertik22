@@ -77,10 +77,12 @@ export default function LoginPage() {
       }
 
       // Set session from server response — session only exists AFTER all verification passed
-      await supabase.auth.setSession({
-        access_token: authData.session.access_token,
-        refresh_token: authData.session.refresh_token,
-      });
+      const { data: existingSessionData } = await supabase.auth.getSession();
+      const existingAccessToken = existingSessionData.session?.access_token;
+
+      if (existingAccessToken !== authData.session.access_token) {
+        await supabase.auth.setSession(authData.session);
+      }
 
       // Navigate based on authenticated role check (fallback to server flag)
       const { data: roles } = await supabase

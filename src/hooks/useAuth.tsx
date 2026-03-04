@@ -56,6 +56,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
         if (!isMounted) return;
+
+        // Guard against transient SIGNED_OUT events during refresh throttling.
+        if (event === "SIGNED_OUT" && !newSession) {
+          void (async () => {
+            const { data: { session: recoveredSession } } = await supabase.auth.getSession();
+            if (!isMounted) return;
+
+            if (recoveredSession?.user) {
+              setSession(recoveredSession);
+              setUser(recoveredSession.user);
+              return;
+            }
+
+            setSession(null);
+            setUser(null);
+            lastSessionUserIdRef.current = null;
+            setIsAdmin(false);
+            setProfile(null);
+            setRoleLoading(false);
+          })();
+          return;
+        }
+
         setSession(newSession);
         setUser(newSession?.user ?? null);
 
