@@ -82,9 +82,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Server-side MIME type validation
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-      return new Response(JSON.stringify({ error: "Only PNG, JPEG, and WebP images are allowed" }), {
+    // Server-side MIME type validation (allow common mobile types too)
+    const normalizedType = file.type === "image/jpg" ? "image/jpeg" : file.type;
+    if (!ALLOWED_MIME_TYPES.includes(normalizedType)) {
+      return new Response(JSON.stringify({ error: `File type "${file.type}" is not allowed. Only PNG, JPEG, and WebP images are accepted.` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -95,7 +96,7 @@ Deno.serve(async (req) => {
     const bytes = new Uint8Array(arrayBuffer);
     const detectedMime = detectMimeType(bytes);
 
-    if (!detectedMime || detectedMime !== file.type) {
+    if (!detectedMime || (detectedMime !== normalizedType && detectedMime !== file.type)) {
       return new Response(JSON.stringify({ error: "File content does not match declared type" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
