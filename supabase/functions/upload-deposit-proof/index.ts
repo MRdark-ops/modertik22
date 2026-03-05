@@ -1,20 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const ALLOWED_ORIGINS = [
-  "https://modertik5.lovable.app",
-  "https://modertin.lovable.app",
-  "https://id-preview--61efc4ae-bed6-4fa9-9299-7ce90d249e3f.lovable.app",
-  "http://localhost:5173",
-];
-
-function getCorsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
-  return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-  };
-}
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
 
 const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -43,7 +33,7 @@ function detectMimeType(bytes: Uint8Array): string | null {
 }
 
 Deno.serve(async (req) => {
-  const corsHeaders = getCorsHeaders(req);
+  
 
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -92,9 +82,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Server-side MIME type validation
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-      return new Response(JSON.stringify({ error: "Only PNG, JPEG, and WebP images are allowed" }), {
+    // Server-side MIME type validation (allow common mobile types too)
+    const normalizedType = file.type === "image/jpg" ? "image/jpeg" : file.type;
+    if (!ALLOWED_MIME_TYPES.includes(normalizedType)) {
+      return new Response(JSON.stringify({ error: `File type "${file.type}" is not allowed. Only PNG, JPEG, and WebP images are accepted.` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -105,7 +96,7 @@ Deno.serve(async (req) => {
     const bytes = new Uint8Array(arrayBuffer);
     const detectedMime = detectMimeType(bytes);
 
-    if (!detectedMime || detectedMime !== file.type) {
+    if (!detectedMime || (detectedMime !== normalizedType && detectedMime !== file.type)) {
       return new Response(JSON.stringify({ error: "File content does not match declared type" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

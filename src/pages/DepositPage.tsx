@@ -157,7 +157,7 @@ export default function DepositPage() {
                   <label className="flex-1 flex items-center justify-center gap-2 h-11 rounded-md border border-dashed border-border bg-secondary cursor-pointer hover:border-primary/50 transition-colors">
                     <Upload className="w-4 h-4 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">Choose file</span>
-                    <input type="file" className="hidden" accept=".png,.jpg,.jpeg,.webp" onChange={handleFileChange} disabled={submitting} />
+                    <input type="file" className="hidden" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" capture="environment" onChange={handleFileChange} disabled={submitting} />
                   </label>
                   {file && <span className="text-xs text-muted-foreground truncate max-w-[120px]">{file.name}</span>}
                 </div>
