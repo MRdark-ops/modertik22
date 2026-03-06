@@ -23,7 +23,7 @@ const depositSchema = z.object({
   amount: z.number({ invalid_type_error: "Please enter a valid amount" }).min(10, "Minimum deposit is $10").max(100000, "Maximum deposit is $100,000"),
 });
 
-const ALLOWED_FILE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const ALLOWED_FILE_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 export default function DepositPage() {
