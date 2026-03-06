@@ -104,20 +104,23 @@ Deno.serve(async (req) => {
     const bytes = new Uint8Array(arrayBuffer);
     const detectedMime = detectMimeType(bytes);
 
-    if (!detectedMime || (detectedMime !== normalizedType && detectedMime !== file.type)) {
-      return new Response(JSON.stringify({ error: "File content does not match declared type" }), {
+    if (!detectedMime) {
+      return new Response(JSON.stringify({ error: "File content does not match a valid image format" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    // Use detected MIME if original was empty
+    const finalMime = normalizedType || detectedMime;
+
     // Generate safe file path with UUID
-    const ext = file.type === "image/png" ? "png" : file.type === "image/jpeg" ? "jpg" : "webp";
+    const ext = finalMime === "image/png" ? "png" : finalMime === "image/jpeg" ? "jpg" : "webp";
     const filePath = `${user.id}/${crypto.randomUUID()}.${ext}`;
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from("deposit-proofs")
-      .upload(filePath, bytes, { contentType: file.type });
+      .upload(filePath, bytes, { contentType: finalMime });
 
     if (uploadError) {
       return new Response(JSON.stringify({ error: "Upload failed" }), {
