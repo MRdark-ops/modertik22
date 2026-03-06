@@ -60,7 +60,13 @@ export default function DepositPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (!selected) return;
-    if (!ALLOWED_FILE_TYPES.includes(selected.type)) {
+    // Normalize MIME type for mobile compatibility
+    const normalizedType = selected.type === "image/jpg" ? "image/jpeg" : selected.type;
+    // On some Android devices, type may be empty for camera photos - allow if extension matches
+    const ext = selected.name?.split(".").pop()?.toLowerCase();
+    const validExtensions = ["png", "jpg", "jpeg", "webp"];
+    const typeValid = ALLOWED_FILE_TYPES.includes(normalizedType) || (!selected.type && validExtensions.includes(ext || ""));
+    if (!typeValid) {
       setErrors(prev => ({ ...prev, file: "Only PNG, JPEG, and WebP images are allowed" }));
       return;
     }
