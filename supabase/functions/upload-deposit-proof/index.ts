@@ -83,9 +83,17 @@ Deno.serve(async (req) => {
     }
 
     // Server-side MIME type validation (allow common mobile types too)
-    const normalizedType = file.type === "image/jpg" ? "image/jpeg" : file.type;
+    let normalizedType = file.type === "image/jpg" ? "image/jpeg" : file.type;
+    
+    // If MIME type is empty (common on Android camera), infer from extension
+    if (!normalizedType) {
+      const ext = file.name?.split(".").pop()?.toLowerCase();
+      const extToMime: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+      normalizedType = extToMime[ext || ""] || "";
+    }
+    
     if (!ALLOWED_MIME_TYPES.includes(normalizedType)) {
-      return new Response(JSON.stringify({ error: `File type "${file.type}" is not allowed. Only PNG, JPEG, and WebP images are accepted.` }), {
+      return new Response(JSON.stringify({ error: `File type "${file.type || 'unknown'}" is not allowed. Only PNG, JPEG, and WebP images are accepted.` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -96,20 +104,23 @@ Deno.serve(async (req) => {
     const bytes = new Uint8Array(arrayBuffer);
     const detectedMime = detectMimeType(bytes);
 
-    if (!detectedMime || (detectedMime !== normalizedType && detectedMime !== file.type)) {
-      return new Response(JSON.stringify({ error: "File content does not match declared type" }), {
+    if (!detectedMime) {
+      return new Response(JSON.stringify({ error: "File content does not match a valid image format" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    // Use detected MIME if original was empty
+    const finalMime = normalizedType || detectedMime;
+
     // Generate safe file path with UUID
-    const ext = file.type === "image/png" ? "png" : file.type === "image/jpeg" ? "jpg" : "webp";
+    const ext = finalMime === "image/png" ? "png" : finalMime === "image/jpeg" ? "jpg" : "webp";
     const filePath = `${user.id}/${crypto.randomUUID()}.${ext}`;
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from("deposit-proofs")
-      .upload(filePath, bytes, { contentType: file.type });
+      .upload(filePath, bytes, { contentType: finalMime });
 
     if (uploadError) {
       return new Response(JSON.stringify({ error: "Upload failed" }), {

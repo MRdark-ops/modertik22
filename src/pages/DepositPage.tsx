@@ -23,7 +23,7 @@ const depositSchema = z.object({
   amount: z.number({ invalid_type_error: "Please enter a valid amount" }).min(10, "Minimum deposit is $10").max(100000, "Maximum deposit is $100,000"),
 });
 
-const ALLOWED_FILE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const ALLOWED_FILE_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 export default function DepositPage() {
@@ -60,7 +60,13 @@ export default function DepositPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (!selected) return;
-    if (!ALLOWED_FILE_TYPES.includes(selected.type)) {
+    // Normalize MIME type for mobile compatibility
+    const normalizedType = selected.type === "image/jpg" ? "image/jpeg" : selected.type;
+    // On some Android devices, type may be empty for camera photos - allow if extension matches
+    const ext = selected.name?.split(".").pop()?.toLowerCase();
+    const validExtensions = ["png", "jpg", "jpeg", "webp"];
+    const typeValid = ALLOWED_FILE_TYPES.includes(normalizedType) || (!selected.type && validExtensions.includes(ext || ""));
+    if (!typeValid) {
       setErrors(prev => ({ ...prev, file: "Only PNG, JPEG, and WebP images are allowed" }));
       return;
     }
