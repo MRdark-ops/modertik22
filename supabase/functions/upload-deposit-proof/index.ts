@@ -83,9 +83,17 @@ Deno.serve(async (req) => {
     }
 
     // Server-side MIME type validation (allow common mobile types too)
-    const normalizedType = file.type === "image/jpg" ? "image/jpeg" : file.type;
+    let normalizedType = file.type === "image/jpg" ? "image/jpeg" : file.type;
+    
+    // If MIME type is empty (common on Android camera), infer from extension
+    if (!normalizedType) {
+      const ext = file.name?.split(".").pop()?.toLowerCase();
+      const extToMime: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+      normalizedType = extToMime[ext || ""] || "";
+    }
+    
     if (!ALLOWED_MIME_TYPES.includes(normalizedType)) {
-      return new Response(JSON.stringify({ error: `File type "${file.type}" is not allowed. Only PNG, JPEG, and WebP images are accepted.` }), {
+      return new Response(JSON.stringify({ error: `File type "${file.type || 'unknown'}" is not allowed. Only PNG, JPEG, and WebP images are accepted.` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
