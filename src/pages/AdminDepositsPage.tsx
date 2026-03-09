@@ -101,6 +101,17 @@ export default function AdminDepositsPage() {
             </table>
           </div>
         </div>
+
+        <Dialog open={proofOpen} onOpenChange={setProofOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Deposit Proof</DialogTitle>
+            </DialogHeader>
+            {proofUrl && (
+              <img src={proofUrl} alt="Deposit proof" className="w-full rounded-lg" />
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );
