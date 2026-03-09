@@ -80,7 +80,11 @@ export default function AdminDepositsPage() {
                   <tr key={d.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
                     <td className="py-3 px-4 font-medium">{d.full_name}</td>
                     <td className="py-3 px-4 font-semibold">${Number(d.amount).toFixed(2)}</td>
-                    <td className="py-3 px-4 text-primary text-xs underline cursor-pointer">{d.proof_url ? "View" : "-"}</td>
+                    <td className="py-3 px-4">
+                      {d.proof_url ? (
+                        <button onClick={() => handleViewProof(d.proof_url)} className="text-primary text-xs underline cursor-pointer hover:text-primary/80">View</button>
+                      ) : "-"}
+                    </td>
                     <td className="py-3 px-4 text-muted-foreground">{new Date(d.created_at).toLocaleDateString()}</td>
                     <td className="py-3 px-4"><StatusBadge status={d.status as any} /></td>
                     <td className="py-3 px-4">
