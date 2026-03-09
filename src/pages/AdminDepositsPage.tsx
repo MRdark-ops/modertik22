@@ -3,9 +3,25 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export default function AdminDepositsPage() {
   const queryClient = useQueryClient();
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [proofOpen, setProofOpen] = useState(false);
+
+  const handleViewProof = async (path: string) => {
+    const { data } = await supabase.storage
+      .from("deposit-proofs")
+      .createSignedUrl(path, 300);
+    if (data?.signedUrl) {
+      setProofUrl(data.signedUrl);
+      setProofOpen(true);
+    } else {
+      toast.error("Failed to load proof image");
+    }
+  };
 
   const { data: deposits } = useQuery({
     queryKey: ["admin-deposits"],
