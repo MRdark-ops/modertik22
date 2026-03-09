@@ -24,7 +24,9 @@ import AdminLogsPage from "./pages/AdminLogsPage";
 
 const queryClient = new QueryClient();
 
-const App = () => (
+const App = () => {
+  useAdMobBanner();
+  return (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
