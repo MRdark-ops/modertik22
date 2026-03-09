@@ -3,9 +3,25 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export default function AdminDepositsPage() {
   const queryClient = useQueryClient();
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [proofOpen, setProofOpen] = useState(false);
+
+  const handleViewProof = async (path: string) => {
+    const { data } = await supabase.storage
+      .from("deposit-proofs")
+      .createSignedUrl(path, 300);
+    if (data?.signedUrl) {
+      setProofUrl(data.signedUrl);
+      setProofOpen(true);
+    } else {
+      toast.error("Failed to load proof image");
+    }
+  };
 
   const { data: deposits } = useQuery({
     queryKey: ["admin-deposits"],
@@ -64,7 +80,11 @@ export default function AdminDepositsPage() {
                   <tr key={d.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
                     <td className="py-3 px-4 font-medium">{d.full_name}</td>
                     <td className="py-3 px-4 font-semibold">${Number(d.amount).toFixed(2)}</td>
-                    <td className="py-3 px-4 text-primary text-xs underline cursor-pointer">{d.proof_url ? "View" : "-"}</td>
+                    <td className="py-3 px-4">
+                      {d.proof_url ? (
+                        <button onClick={() => handleViewProof(d.proof_url)} className="text-primary text-xs underline cursor-pointer hover:text-primary/80">View</button>
+                      ) : "-"}
+                    </td>
                     <td className="py-3 px-4 text-muted-foreground">{new Date(d.created_at).toLocaleDateString()}</td>
                     <td className="py-3 px-4"><StatusBadge status={d.status as any} /></td>
                     <td className="py-3 px-4">
@@ -81,6 +101,17 @@ export default function AdminDepositsPage() {
             </table>
           </div>
         </div>
+
+        <Dialog open={proofOpen} onOpenChange={setProofOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Deposit Proof</DialogTitle>
+            </DialogHeader>
+            {proofUrl && (
+              <img src={proofUrl} alt="Deposit proof" className="w-full rounded-lg" />
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );
