@@ -33,7 +33,7 @@ function detectMimeType(bytes: Uint8Array): string | null {
 }
 
 Deno.serve(async (req) => {
-  
+  console.log("upload-deposit-proof called, method:", req.method);
 
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
