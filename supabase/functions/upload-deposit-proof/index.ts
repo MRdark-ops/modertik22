@@ -33,7 +33,7 @@ function detectMimeType(bytes: Uint8Array): string | null {
 }
 
 Deno.serve(async (req) => {
-  
+  console.log("upload-deposit-proof called, method:", req.method);
 
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -123,7 +123,8 @@ Deno.serve(async (req) => {
       .upload(filePath, bytes, { contentType: finalMime });
 
     if (uploadError) {
-      return new Response(JSON.stringify({ error: "Upload failed" }), {
+      console.error("Storage upload error:", JSON.stringify(uploadError));
+      return new Response(JSON.stringify({ error: "Upload failed: " + uploadError.message }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
