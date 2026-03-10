@@ -123,7 +123,8 @@ Deno.serve(async (req) => {
       .upload(filePath, bytes, { contentType: finalMime });
 
     if (uploadError) {
-      return new Response(JSON.stringify({ error: "Upload failed" }), {
+      console.error("Storage upload error:", JSON.stringify(uploadError));
+      return new Response(JSON.stringify({ error: "Upload failed: " + uploadError.message }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
