@@ -3,6 +3,7 @@ import { TrendingUp, Shield, Users, ArrowRight, Wallet, BarChart3 } from "lucide
 import { Button } from "@/components/ui/button";
 import authBg from "@/assets/auth-bg.jpg";
 import { useVisitTracker } from "@/hooks/useVisitTracker";
+import AdBanner from "@/components/AdBanner";
 
 const features = [
   { icon: Wallet, title: "Secure Deposits", desc: "Fund your account with verified payment methods and admin-approved transactions." },
