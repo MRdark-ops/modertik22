@@ -64,6 +64,9 @@ export default function Index() {
         </div>
       </section>
 
+      {/* Ad */}
+      <AdBanner />
+
       {/* Features */}
       <section className="py-24 relative">
         <div className="container mx-auto px-4">
