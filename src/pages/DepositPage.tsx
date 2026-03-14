@@ -148,7 +148,7 @@ export default function DepositPage() {
             <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
               <p className="text-sm font-medium text-primary mb-1">Payment Instructions</p>
               <p className="text-sm text-muted-foreground">Send your deposit via Binance Pay to the following address and upload proof below.</p>
-              <p className="text-xs text-muted-foreground mt-2 font-mono bg-secondary/50 p-2 rounded">Wallet: 0x1234...abcd</p>
+              <p className="text-xs text-muted-foreground mt-2 font-mono bg-secondary/50 p-2 rounded">Wallet: https://s.binance.com/rBn1DAvU</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
