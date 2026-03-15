@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ArrowDownToLine, Upload, CheckCircle, X } from "lucide-react";
-import { useState, useEffect, useRef } from "react"; // أضفت useRef
+import { useState, useEffect } from "react";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -43,9 +43,6 @@ export default function DepositPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  
-  // إضافة مرجع لحقل الإدخال للتحكم به برمجياً
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (amount) {
@@ -77,7 +74,7 @@ export default function DepositPage() {
     try {
       const selected = e.target.files?.[0];
       
-      // تنظيف قيمة الـ input لضمان إمكانية اختيار نفس الملف لاحقاً
+      // تنظيف القيمة لاختيار نفس الملف لاحقاً
       if (e.target) e.target.value = '';
 
       if (!selected) return;
@@ -101,11 +98,6 @@ export default function DepositPage() {
     } catch (err) {
       console.error("File selection error:", err);
     }
-  };
-
-  // دالة لفتح نافذة اختيار الملف عند الضغط على الزر
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
   };
 
   const preventDragHandler = (e: React.DragEvent) => {
@@ -182,9 +174,9 @@ export default function DepositPage() {
 
   return (
     <DashboardLayout title="Deposit Funds">
-      {/* أضفت overscroll-contain لمنع تحديث الصفحة عند السحب للأسفل في الهاتف */}
+      {/* أضفنا touch-manipulation لمنع التحديث بالسحب والرجوع باللمس */}
       <div 
-        className="space-y-6 animate-fade-in max-w-4xl overscroll-contain"
+        className="space-y-6 animate-fade-in max-w-4xl overscroll-contain touch-manipulation"
         onDragOver={preventDragHandler}
         onDrop={preventDragHandler}
       >
@@ -209,6 +201,19 @@ export default function DepositPage() {
               </p>
             </div>
             
+            {/* 
+               حقل الإدخال وضعناه خارج الـ form لمنع أي تعارض.
+               استخدمنا sr-only (screen reader only) ليكون مخفياً بصرياً لكن وظيفياً 100% عبر الـ label
+            */}
+            <input 
+              type="file" 
+              id="mobile-proof-upload"
+              className="sr-only" 
+              accept="image/png,image/jpeg,image/webp,image/jpg" 
+              onChange={handleFileChange} 
+              disabled={submitting} 
+            />
+
             <form onSubmit={(e) => e.preventDefault()}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -227,32 +232,28 @@ export default function DepositPage() {
                   {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
                 </div>
                 
-                {/* --- الحل النهائي لمشكلة رفع الصور في الهواتف --- */}
+                {/* --- زر رفع الصور المصحح --- */}
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Upload Proof</Label>
                   <div className="flex items-center gap-2">
                     
-                    {/* حقل الإدخال مخفي تماماً ولا يتفاعل مع المستخدم مباشرة */}
-                    <input 
-                      type="file" 
-                      ref={fileInputRef}
-                      className="hidden" 
-                      accept="image/png,image/jpeg,image/webp,image/jpg" 
-                      onChange={handleFileChange} 
-                      disabled={submitting} 
-                    />
-
-                    {/* زر مخصص يتحكم في فتح حقل الإدخال */}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleUploadClick}
-                      disabled={submitting}
-                      className="w-full h-11 border-dashed border-border bg-secondary hover:bg-secondary/80 flex items-center justify-center gap-2"
+                    {/* 
+                       نستخدم label مربوط بـ id الحقل.
+                       هذا يمنع مشاكل الـ z-index ومشاكل اللمس في الهواتف بالكامل.
+                    */}
+                    <label 
+                      htmlFor="mobile-proof-upload"
+                      className={`
+                        flex-1 h-11 flex items-center justify-center gap-2 
+                        rounded-md border border-dashed border-border bg-secondary 
+                        cursor-pointer transition-colors
+                        hover:bg-secondary/80
+                        ${submitting ? 'opacity-50 pointer-events-none' : ''}
+                      `}
                     >
                       <Upload className="w-4 h-4 text-muted-foreground" />
                       <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
-                    </Button>
+                    </label>
 
                     {file && (
                       <span className="text-xs text-green-500 font-medium truncate max-w-[120px]" title={file.name}>
@@ -262,7 +263,7 @@ export default function DepositPage() {
                   </div>
                   {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
                 </div>
-                {/* ------------------------------------------------- */}
+                {/* -------------------------- */}
 
               </div>
               <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto mt-4">
