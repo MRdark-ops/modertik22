@@ -70,31 +70,39 @@ export default function DepositPage() {
     enabled: !!user,
   });
 
+  // ✅ FIX 1: e.target.value is cleared AFTER saving the file to state,
+  //    not before — which was causing the file to be lost on some browsers/devices.
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     try {
       const selected = e.target.files?.[0];
-      
-      // تنظيف القيمة لاختيار نفس الملف لاحقاً
-      if (e.target) e.target.value = '';
 
       if (!selected) return;
 
       const normalizedType = selected.type === "image/jpg" ? "image/jpeg" : selected.type;
       const ext = selected.name?.split(".").pop()?.toLowerCase();
       const validExtensions = ["png", "jpg", "jpeg", "webp"];
-      const typeValid = ALLOWED_FILE_TYPES.includes(normalizedType) || (!selected.type && validExtensions.includes(ext || ""));
+      const typeValid =
+        ALLOWED_FILE_TYPES.includes(normalizedType) ||
+        (!selected.type && validExtensions.includes(ext || ""));
 
       if (!typeValid) {
         setErrors(prev => ({ ...prev, file: "Only PNG, JPEG, and WebP images are allowed" }));
+        e.target.value = ""; // clear only on error
         return;
       }
       if (selected.size > MAX_FILE_SIZE) {
         setErrors(prev => ({ ...prev, file: "File must be under 5MB" }));
+        e.target.value = ""; // clear only on error
         return;
       }
 
-      setErrors(prev => { const { file, ...rest } = prev; return rest; });
+      setErrors(prev => {
+        const { file, ...rest } = prev;
+        return rest;
+      });
       setFile(selected);
+      // Clear AFTER the file is saved so re-selecting the same file works
+      e.target.value = "";
     } catch (err) {
       console.error("File selection error:", err);
     }
@@ -110,7 +118,9 @@ export default function DepositPage() {
     const result = depositSchema.safeParse({ amount: parseFloat(amount) });
     if (!result.success) {
       const fieldErrors: Record<string, string> = {};
-      result.error.errors.forEach(err => { fieldErrors.amount = err.message; });
+      result.error.errors.forEach(err => {
+        fieldErrors.amount = err.message;
+      });
       setErrors(fieldErrors);
       return;
     }
@@ -124,22 +134,29 @@ export default function DepositPage() {
     try {
       const formData = new FormData();
       const ext = file.name?.split(".").pop()?.toLowerCase();
-      const mimeMap: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+      const mimeMap: Record<string, string> = {
+        png: "image/png",
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        webp: "image/webp",
+      };
       const correctMime = file.type || mimeMap[ext || ""] || "image/jpeg";
-      const fixedFile = new File([file], file.name || `photo.${ext || "jpg"}`, { type: correctMime });
+      const fixedFile = new File([file], file.name || `photo.${ext || "jpg"}`, {
+        type: correctMime,
+      });
       formData.append("file", fixedFile);
 
-      const { data: uploadData, error: uploadError } = await supabase.functions.invoke("upload-deposit-proof", {
-        body: formData,
-      });
+      const { data: uploadData, error: uploadError } = await supabase.functions.invoke(
+        "upload-deposit-proof",
+        { body: formData }
+      );
 
       if (uploadError || !uploadData?.path) {
-        const errMsg = typeof uploadData?.error === "string" ? uploadData.error : uploadError?.message || "Upload failed";
-        toast({
-          title: "Upload failed",
-          description: errMsg,
-          variant: "destructive",
-        });
+        const errMsg =
+          typeof uploadData?.error === "string"
+            ? uploadData.error
+            : uploadError?.message || "Upload failed";
+        toast({ title: "Upload failed", description: errMsg, variant: "destructive" });
         setSubmitting(false);
         return;
       }
@@ -159,11 +176,11 @@ export default function DepositPage() {
         setLastDepositAmount(result.data.amount.toFixed(2));
         setShowConfirmation(true);
         setTimeout(() => setShowTelegram(true), 3000);
-        
+
         setAmount("");
         setFile(null);
         localStorage.removeItem("depositAmountDraft");
-        
+
         queryClient.invalidateQueries({ queryKey: ["deposits"] });
       }
     } catch {
@@ -174,7 +191,7 @@ export default function DepositPage() {
 
   return (
     <DashboardLayout title="Deposit Funds">
-      <div 
+      <div
         className="space-y-6 animate-fade-in max-w-4xl"
         onDragOver={preventDragHandler}
         onDrop={preventDragHandler}
@@ -186,7 +203,9 @@ export default function DepositPage() {
           <div className="space-y-4">
             <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
               <p className="text-sm font-medium text-primary mb-1">Payment Instructions</p>
-              <p className="text-sm text-muted-foreground">Send your deposit via Binance Pay to the following address and upload proof below.</p>
+              <p className="text-sm text-muted-foreground">
+                Send your deposit via Binance Pay to the following address and upload proof below.
+              </p>
               <p className="text-xs text-muted-foreground mt-2 font-mono bg-secondary/50 p-2 rounded">
                 Wallet:{" "}
                 <a
@@ -199,64 +218,71 @@ export default function DepositPage() {
                 </a>
               </p>
             </div>
-            
-            <form onSubmit={(e) => e.preventDefault()}>
+
+            {/* ✅ FIX 2: Removed the <form> wrapper entirely.
+                A plain <div> prevents any accidental form submission / page reload
+                when interacting with the file input on mobile browsers. */}
+            <div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Amount (USD)</Label>
-                  <Input 
-                    type="number" 
-                    placeholder="100.00" 
-                    value={amount} 
+                  <Input
+                    type="number"
+                    placeholder="100.00"
+                    value={amount}
                     onChange={e => setAmount(e.target.value)}
-                    className={`bg-secondary border-border focus:border-primary h-11 ${errors.amount ? 'border-destructive' : ''}`} 
-                    min="10" 
-                    max="100000" 
-                    step="0.01" 
-                    disabled={submitting} 
+                    className={`bg-secondary border-border focus:border-primary h-11 ${
+                      errors.amount ? "border-destructive" : ""
+                    }`}
+                    min="10"
+                    max="100000"
+                    step="0.01"
+                    disabled={submitting}
                   />
                   {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
                 </div>
-                
-                {/* --- الحل النهائي والمضمون للهواتف --- */}
+
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Upload Proof</Label>
                   <div className="flex items-center gap-2">
-                    
-                    {/* حاوية نسبية لوضع الطبقات فوق بعض */}
                     <div className="relative flex-1 h-11">
-                      
-                      {/* طبقة الـ Input: شفافة تماماً، موجودة في الأعلى (z-10) لاستقبال اللمس المباشر */}
-                      <input 
-                        type="file" 
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
-                        accept="image/png,image/jpeg,image/webp,image/jpg" 
-                        onChange={handleFileChange} 
-                        disabled={submitting} 
+                      <input
+                        type="file"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                        accept="image/png,image/jpeg,image/webp,image/jpg"
+                        onChange={handleFileChange}
+                        disabled={submitting}
                       />
-                      
-                      {/* طبقة التصميم: موجودة في الأسفل، لا تتفاعل (pointer-events-none) */}
                       <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-md border border-dashed border-border bg-secondary pointer-events-none">
                         <Upload className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {file ? "Change file" : "Choose file"}
+                        </span>
                       </div>
                     </div>
 
                     {file && (
-                      <span className="text-xs text-green-500 font-medium truncate max-w-[120px]" title={file.name}>
+                      <span
+                        className="text-xs text-green-500 font-medium truncate max-w-[120px]"
+                        title={file.name}
+                      >
                         ✓ {file.name}
                       </span>
                     )}
                   </div>
                   {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
                 </div>
-                {/* ----------------------------------- */}
-
               </div>
-              <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto mt-4">
+
+              <Button
+                type="button"
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto mt-4"
+              >
                 {submitting ? "Submitting..." : "Submit Deposit"}
               </Button>
-            </form>
+            </div>
           </div>
         </div>
 
@@ -276,11 +302,17 @@ export default function DepositPage() {
                   <tr key={d.id} className="border-b border-border/50">
                     <td className="py-3">{new Date(d.created_at).toLocaleDateString()}</td>
                     <td className="py-3 font-semibold">${Number(d.amount).toFixed(2)}</td>
-                    <td className="py-3"><StatusBadge status={d.status} /></td>
+                    <td className="py-3">
+                      <StatusBadge status={d.status} />
+                    </td>
                   </tr>
                 ))}
                 {deposits.length === 0 && (
-                  <tr><td colSpan={3} className="py-6 text-center text-muted-foreground">No deposits yet</td></tr>
+                  <tr>
+                    <td colSpan={3} className="py-6 text-center text-muted-foreground">
+                      No deposits yet
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
@@ -297,7 +329,9 @@ export default function DepositPage() {
               Deposit Request Submitted
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Your deposit request for <span className="font-semibold text-foreground">${lastDepositAmount}</span> has been successfully submitted and is pending admin approval.
+              Your deposit request for{" "}
+              <span className="font-semibold text-foreground">${lastDepositAmount}</span> has been
+              successfully submitted and is pending admin approval.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
@@ -312,7 +346,8 @@ export default function DepositPage() {
             <div className="p-4 rounded-lg bg-secondary/50 border border-border">
               <p className="text-sm font-medium mb-2">Need help? Contact our support team</p>
               <p className="text-xs text-muted-foreground">
-                For any questions about your deposit, please reach out via our support channels available in your dashboard.
+                For any questions about your deposit, please reach out via our support channels
+                available in your dashboard.
               </p>
             </div>
             <DialogClose asChild>
@@ -326,7 +361,10 @@ export default function DepositPage() {
 
       {/* Telegram Channel Popup */}
       <Dialog open={showTelegram} onOpenChange={setShowTelegram}>
-        <DialogContent className="sm:max-w-md bg-card border-border" onInteractOutside={(e) => e.preventDefault()}>
+        <DialogContent
+          className="sm:max-w-md bg-card border-border"
+          onInteractOutside={e => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-foreground">
               📢 انضم إلى قناتنا
