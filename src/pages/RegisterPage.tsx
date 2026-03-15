@@ -21,8 +21,9 @@ const registerSchema = z.object({
 });
 
 export default function RegisterPage() {
+  const [searchParams] = useSearchParams();
   const [showPassword, setShowPassword] = useState(false);
-  const [form, setForm] = useState({ fullName: "", email: "", password: "", referralCode: "" });
+  const [form, setForm] = useState({ fullName: "", email: "", password: "", referralCode: searchParams.get("ref") || "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const { toast } = useToast();
