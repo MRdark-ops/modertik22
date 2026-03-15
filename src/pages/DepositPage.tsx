@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ArrowDownToLine, Upload, CheckCircle, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react"; // أضفت useRef
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -43,6 +43,9 @@ export default function DepositPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  
+  // إضافة مرجع لحقل الإدخال للتحكم به برمجياً
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (amount) {
@@ -74,9 +77,8 @@ export default function DepositPage() {
     try {
       const selected = e.target.files?.[0];
       
-      // إعادة تعيين قيمة الـ input لتمكين اختيار نفس الملف مجدداً إذا لزم الأمر
-      // نضعها في نهاية الدالة أو هنا لضمان نظافة الحالة
-      if (e.target) e.target.value = ''; 
+      // تنظيف قيمة الـ input لضمان إمكانية اختيار نفس الملف لاحقاً
+      if (e.target) e.target.value = '';
 
       if (!selected) return;
 
@@ -101,6 +103,11 @@ export default function DepositPage() {
     }
   };
 
+  // دالة لفتح نافذة اختيار الملف عند الضغط على الزر
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
   const preventDragHandler = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -108,8 +115,6 @@ export default function DepositPage() {
 
   const handleSubmit = async () => {
     setErrors({});
-    
-    // التحقق من المبلغ
     const result = depositSchema.safeParse({ amount: parseFloat(amount) });
     if (!result.success) {
       const fieldErrors: Record<string, string> = {};
@@ -117,8 +122,6 @@ export default function DepositPage() {
       setErrors(fieldErrors);
       return;
     }
-    
-    // التحقق من الملف
     if (!file) {
       setErrors({ file: "Please upload proof of payment" });
       return;
@@ -179,8 +182,9 @@ export default function DepositPage() {
 
   return (
     <DashboardLayout title="Deposit Funds">
+      {/* أضفت overscroll-contain لمنع تحديث الصفحة عند السحب للأسفل في الهاتف */}
       <div 
-        className="space-y-6 animate-fade-in max-w-4xl"
+        className="space-y-6 animate-fade-in max-w-4xl overscroll-contain"
         onDragOver={preventDragHandler}
         onDrop={preventDragHandler}
       >
@@ -223,31 +227,32 @@ export default function DepositPage() {
                   {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
                 </div>
                 
-                {/* --- بداية جزء رفع الصورة المصحح --- */}
+                {/* --- الحل النهائي لمشكلة رفع الصور في الهواتف --- */}
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Upload Proof</Label>
                   <div className="flex items-center gap-2">
                     
-                    {/* 
-                       الحل: استخدام Label كغلاف للحقل.
-                       هذا يمنع مشاكل الـ z-index والضغط الخاطئ على الهاتف.
-                       الحقل input مخفي تماماً (hidden)، والضغط على الـ label يفعله.
-                    */}
-                    <label className="relative flex-1 h-11 cursor-pointer">
-                      <input 
-                        type="file" 
-                        className="hidden" // إخفاء الحقل الأصلي تماماً
-                        accept="image/png,image/jpeg,image/webp,image/jpg" 
-                        onChange={handleFileChange} 
-                        disabled={submitting} 
-                      />
-                      
-                      {/* التصميم المرئي للزر - يظهر كزر عادي */}
-                      <div className="flex items-center justify-center gap-2 h-full w-full rounded-md border border-dashed border-border bg-secondary hover:bg-secondary/80 transition-colors">
-                        <Upload className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
-                      </div>
-                    </label>
+                    {/* حقل الإدخال مخفي تماماً ولا يتفاعل مع المستخدم مباشرة */}
+                    <input 
+                      type="file" 
+                      ref={fileInputRef}
+                      className="hidden" 
+                      accept="image/png,image/jpeg,image/webp,image/jpg" 
+                      onChange={handleFileChange} 
+                      disabled={submitting} 
+                    />
+
+                    {/* زر مخصص يتحكم في فتح حقل الإدخال */}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleUploadClick}
+                      disabled={submitting}
+                      className="w-full h-11 border-dashed border-border bg-secondary hover:bg-secondary/80 flex items-center justify-center gap-2"
+                    >
+                      <Upload className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
+                    </Button>
 
                     {file && (
                       <span className="text-xs text-green-500 font-medium truncate max-w-[120px]" title={file.name}>
@@ -257,7 +262,7 @@ export default function DepositPage() {
                   </div>
                   {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
                 </div>
-                {/* --- نهاية جزء رفع الصورة المصحح --- */}
+                {/* ------------------------------------------------- */}
 
               </div>
               <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto mt-4">
