@@ -71,25 +71,36 @@ export default function DepositPage() {
   });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0];
-    if (!selected) return;
-    
-    const normalizedType = selected.type === "image/jpg" ? "image/jpeg" : selected.type;
-    const ext = selected.name?.split(".").pop()?.toLowerCase();
-    const validExtensions = ["png", "jpg", "jpeg", "webp"];
-    const typeValid = ALLOWED_FILE_TYPES.includes(normalizedType) || (!selected.type && validExtensions.includes(ext || ""));
-    
-    if (!typeValid) {
-      setErrors(prev => ({ ...prev, file: "Only PNG, JPEG, and WebP images are allowed" }));
-      return;
+    // منع التحديث التلقائي في حال وجود خطأ
+    try {
+      const selected = e.target.files?.[0];
+      if (!selected) return;
+      
+      const normalizedType = selected.type === "image/jpg" ? "image/jpeg" : selected.type;
+      const ext = selected.name?.split(".").pop()?.toLowerCase();
+      const validExtensions = ["png", "jpg", "jpeg", "webp"];
+      const typeValid = ALLOWED_FILE_TYPES.includes(normalizedType) || (!selected.type && validExtensions.includes(ext || ""));
+      
+      if (!typeValid) {
+        setErrors(prev => ({ ...prev, file: "Only PNG, JPEG, and WebP images are allowed" }));
+        return;
+      }
+      if (selected.size > MAX_FILE_SIZE) {
+        setErrors(prev => ({ ...prev, file: "File must be under 5MB" }));
+        return;
+      }
+      
+      setErrors(prev => { const { file, ...rest } = prev; return rest; });
+      setFile(selected);
+    } catch (err) {
+      console.error("File selection error:", err);
     }
-    if (selected.size > MAX_FILE_SIZE) {
-      setErrors(prev => ({ ...prev, file: "File must be under 5MB" }));
-      return;
-    }
-    
-    setErrors(prev => { const { file, ...rest } = prev; return rest; });
-    setFile(selected);
+  };
+
+  // ✅ دالة لمنع المتصفح من فتح الملف عند سحبه وإفلاته خارج منطقة الرفع
+  const preventDragHandler = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   const handleSubmit = async () => {
@@ -161,7 +172,12 @@ export default function DepositPage() {
 
   return (
     <DashboardLayout title="Deposit Funds">
-      <div className="space-y-6 animate-fade-in max-w-4xl">
+      {/* ✅ إضافة onDragOver و onDrop على الحاوية الرئيسية لمنع تحديث الصفحة عند سحب ملف */}
+      <div 
+        className="space-y-6 animate-fade-in max-w-4xl"
+        onDragOver={preventDragHandler}
+        onDrop={preventDragHandler}
+      >
         <div className="glass-card p-6">
           <h3 className="font-display text-lg font-semibold mb-4 flex items-center gap-2">
             <ArrowDownToLine className="w-5 h-5 text-primary" /> New Deposit
@@ -170,7 +186,6 @@ export default function DepositPage() {
             <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
               <p className="text-sm font-medium text-primary mb-1">Payment Instructions</p>
               <p className="text-sm text-muted-foreground">Send your deposit via Binance Pay to the following address and upload proof below.</p>
-              {/* ✅ تم تحويل الرابط إلى عنصر قابل للنقر */}
               <p className="text-xs text-muted-foreground mt-2 font-mono bg-secondary/50 p-2 rounded">
                 Wallet:{" "}
                 <a
@@ -183,48 +198,52 @@ export default function DepositPage() {
                 </a>
               </p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Amount (USD)</Label>
-                <Input 
-                  type="number" 
-                  placeholder="100.00" 
-                  value={amount} 
-                  onChange={e => setAmount(e.target.value)}
-                  className={`bg-secondary border-border focus:border-primary h-11 ${errors.amount ? 'border-destructive' : ''}`} 
-                  min="10" 
-                  max="100000" 
-                  step="0.01" 
-                  disabled={submitting} 
-                />
-                {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Upload Proof</Label>
-                <div className="flex items-center gap-2">
-                  <label className="flex-1 flex items-center justify-center gap-2 h-11 rounded-md border border-dashed border-border bg-secondary cursor-pointer hover:border-primary/50 transition-colors">
-                    <Upload className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
-                    <input 
-                      type="file" 
-                      className="hidden" 
-                      accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" 
-                      onChange={handleFileChange} 
-                      disabled={submitting} 
-                    />
-                  </label>
-                  {file && (
-                    <span className="text-xs text-green-500 font-medium truncate max-w-[120px]" title={file.name}>
-                      ✓ {file.name}
-                    </span>
-                  )}
+            
+            {/* ✅ إضافة وسم Form لمنع سلوك الإرسال الافتراضي عند ضغط Enter */}
+            <form onSubmit={(e) => e.preventDefault()}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm text-muted-foreground">Amount (USD)</Label>
+                  <Input 
+                    type="number" 
+                    placeholder="100.00" 
+                    value={amount} 
+                    onChange={e => setAmount(e.target.value)}
+                    className={`bg-secondary border-border focus:border-primary h-11 ${errors.amount ? 'border-destructive' : ''}`} 
+                    min="10" 
+                    max="100000" 
+                    step="0.01" 
+                    disabled={submitting} 
+                  />
+                  {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
                 </div>
-                {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
+                <div className="space-y-2">
+                  <Label className="text-sm text-muted-foreground">Upload Proof</Label>
+                  <div className="flex items-center gap-2">
+                    <label className="flex-1 flex items-center justify-center gap-2 h-11 rounded-md border border-dashed border-border bg-secondary cursor-pointer hover:border-primary/50 transition-colors">
+                      <Upload className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" 
+                        onChange={handleFileChange} 
+                        disabled={submitting} 
+                      />
+                    </label>
+                    {file && (
+                      <span className="text-xs text-green-500 font-medium truncate max-w-[120px]" title={file.name}>
+                        ✓ {file.name}
+                      </span>
+                    )}
+                  </div>
+                  {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
+                </div>
               </div>
-            </div>
-            <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto">
-              {submitting ? "Submitting..." : "Submit Deposit"}
-            </Button>
+              <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto mt-4">
+                {submitting ? "Submitting..." : "Submit Deposit"}
+              </Button>
+            </form>
           </div>
         </div>
 
