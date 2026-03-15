@@ -27,7 +27,14 @@ const ALLOWED_FILE_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp"
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 export default function DepositPage() {
-  const [amount, setAmount] = useState("");
+  // تعديل: تهيئة الـ State بالقراءة من localStorage إذا كان موجوداً
+  const [amount, setAmount] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("depositAmountDraft") || "";
+    }
+    return "";
+  });
+  
   const [file, setFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -37,6 +44,15 @@ export default function DepositPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+
+  // تعديل: حفظ المبلغ تلقائياً في localStorage عند أي تغيير
+  useEffect(() => {
+    if (amount) {
+      localStorage.setItem("depositAmountDraft", amount);
+    } else {
+      localStorage.removeItem("depositAmountDraft");
+    }
+  }, [amount]);
 
   // Auto-close telegram popup after 1 minute
   useEffect(() => {
@@ -60,12 +76,15 @@ export default function DepositPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (!selected) return;
+    
     // Normalize MIME type for mobile compatibility
     const normalizedType = selected.type === "image/jpg" ? "image/jpeg" : selected.type;
+    
     // On some Android devices, type may be empty for camera photos - allow if extension matches
     const ext = selected.name?.split(".").pop()?.toLowerCase();
     const validExtensions = ["png", "jpg", "jpeg", "webp"];
     const typeValid = ALLOWED_FILE_TYPES.includes(normalizedType) || (!selected.type && validExtensions.includes(ext || ""));
+    
     if (!typeValid) {
       setErrors(prev => ({ ...prev, file: "Only PNG, JPEG, and WebP images are allowed" }));
       return;
@@ -74,6 +93,7 @@ export default function DepositPage() {
       setErrors(prev => ({ ...prev, file: "File must be under 5MB" }));
       return;
     }
+    
     setErrors(prev => { const { file, ...rest } = prev; return rest; });
     setFile(selected);
   };
@@ -133,8 +153,12 @@ export default function DepositPage() {
         setLastDepositAmount(result.data.amount.toFixed(2));
         setShowConfirmation(true);
         setTimeout(() => setShowTelegram(true), 3000);
+        
+        // تعديل: مسح البيانات المحفوظة ومسح الحقول
         setAmount("");
         setFile(null);
+        localStorage.removeItem("depositAmountDraft"); // مسح النسخة الاحتياطية
+        
         queryClient.invalidateQueries({ queryKey: ["deposits"] });
       }
     } catch {
@@ -159,8 +183,17 @@ export default function DepositPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-sm text-muted-foreground">Amount (USD)</Label>
-                <Input type="number" placeholder="100.00" value={amount} onChange={e => setAmount(e.target.value)}
-                  className={`bg-secondary border-border focus:border-primary h-11 ${errors.amount ? 'border-destructive' : ''}`} min="10" max="100000" step="0.01" disabled={submitting} />
+                <Input 
+                  type="number" 
+                  placeholder="100.00" 
+                  value={amount} 
+                  onChange={e => setAmount(e.target.value)}
+                  className={`bg-secondary border-border focus:border-primary h-11 ${errors.amount ? 'border-destructive' : ''}`} 
+                  min="10" 
+                  max="100000" 
+                  step="0.01" 
+                  disabled={submitting} 
+                />
                 {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
               </div>
               <div className="space-y-2">
@@ -168,15 +201,26 @@ export default function DepositPage() {
                 <div className="flex items-center gap-2">
                   <label className="flex-1 flex items-center justify-center gap-2 h-11 rounded-md border border-dashed border-border bg-secondary cursor-pointer hover:border-primary/50 transition-colors">
                     <Upload className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Choose file</span>
-                    <input type="file" className="hidden" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" capture="environment" onChange={handleFileChange} disabled={submitting} />
+                    <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
+                    <input 
+                      type="file" 
+                      className="hidden" 
+                      accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" 
+                      //capture="environment" // تم إزالة هذا السطر لمنع فتح الكاميرا مباشرة وإعطاء خيار الاختيار
+                      onChange={handleFileChange} 
+                      disabled={submitting} 
+                    />
                   </label>
-                  {file && <span className="text-xs text-muted-foreground truncate max-w-[120px]">{file.name}</span>}
+                  {file && (
+                    <span className="text-xs text-green-500 font-medium truncate max-w-[120px]" title={file.name}>
+                      ✓ {file.name}
+                    </span>
+                  )}
                 </div>
                 {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
               </div>
             </div>
-            <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90">
+            <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto">
               {submitting ? "Submitting..." : "Submit Deposit"}
             </Button>
           </div>
@@ -246,7 +290,7 @@ export default function DepositPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Telegram Channel Popup - auto-close after 1 minute */}
+      {/* Telegram Channel Popup */}
       <Dialog open={showTelegram} onOpenChange={setShowTelegram}>
         <DialogContent className="sm:max-w-md bg-card border-border" onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
