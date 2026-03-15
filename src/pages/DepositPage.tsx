@@ -96,16 +96,22 @@ export default function DepositPage() {
     setSubmitting(true);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      // Re-create file blob to ensure correct MIME type on mobile
+      const ext = file.name?.split(".").pop()?.toLowerCase();
+      const mimeMap: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+      const correctMime = file.type || mimeMap[ext || ""] || "image/jpeg";
+      const fixedFile = new File([file], file.name || `photo.${ext || "jpg"}`, { type: correctMime });
+      formData.append("file", fixedFile);
 
       const { data: uploadData, error: uploadError } = await supabase.functions.invoke("upload-deposit-proof", {
         body: formData,
       });
 
       if (uploadError || !uploadData?.path) {
+        const errMsg = typeof uploadData?.error === "string" ? uploadData.error : uploadError?.message || "Upload failed";
         toast({
           title: "Upload failed",
-          description: uploadError?.message || "Upload failed",
+          description: errMsg,
           variant: "destructive",
         });
         setSubmitting(false);
