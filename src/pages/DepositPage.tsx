@@ -161,16 +161,33 @@ export default function DepositPage() {
       });
       formData.append("file", fixedFile);
 
-      const { data: uploadData, error: uploadError } =
-        await supabase.functions.invoke("upload-deposit-proof", {
-          body: formData,
-        });
+      // ✅ fetch مباشر بدل supabase.functions.invoke لأن invoke يُفسد FormData على الجوّال
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
 
-      if (uploadError || !uploadData?.path) {
-        const errMsg =
-          typeof uploadData?.error === "string"
-            ? uploadData.error
-            : uploadError?.message || "Upload failed";
+      const projectRef = supabase.supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1];
+      const edgeFnUrl = `https://${projectRef}.supabase.co/functions/v1/upload-deposit-proof`;
+
+      const fetchResponse = await fetch(edgeFnUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          // ✅ لا تضع Content-Type يدوياً — المتصفح يضعه تلقائياً مع الـ boundary الصحيح
+        },
+        body: formData,
+      });
+
+      if (!fetchResponse.ok) {
+        const errText = await fetchResponse.text().catch(() => "Upload failed");
+        toast({ title: "Upload failed", description: errText, variant: "destructive" });
+        setSubmitting(false);
+        return;
+      }
+
+      const uploadData = await fetchResponse.json().catch(() => null);
+
+      if (!uploadData?.path) {
+        const errMsg = uploadData?.error || "Upload failed: no file path returned";
         toast({ title: "Upload failed", description: errMsg, variant: "destructive" });
         setSubmitting(false);
         return;
