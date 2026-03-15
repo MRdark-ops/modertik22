@@ -71,7 +71,6 @@ export default function DepositPage() {
   });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // منع التحديث التلقائي في حال وجود خطأ
     try {
       const selected = e.target.files?.[0];
       if (!selected) return;
@@ -97,7 +96,6 @@ export default function DepositPage() {
     }
   };
 
-  // ✅ دالة لمنع المتصفح من فتح الملف عند سحبه وإفلاته خارج منطقة الرفع
   const preventDragHandler = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -172,7 +170,6 @@ export default function DepositPage() {
 
   return (
     <DashboardLayout title="Deposit Funds">
-      {/* ✅ إضافة onDragOver و onDrop على الحاوية الرئيسية لمنع تحديث الصفحة عند سحب ملف */}
       <div 
         className="space-y-6 animate-fade-in max-w-4xl"
         onDragOver={preventDragHandler}
@@ -199,7 +196,6 @@ export default function DepositPage() {
               </p>
             </div>
             
-            {/* ✅ إضافة وسم Form لمنع سلوك الإرسال الافتراضي عند ضغط Enter */}
             <form onSubmit={(e) => e.preventDefault()}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -217,20 +213,29 @@ export default function DepositPage() {
                   />
                   {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
                 </div>
+                
+                {/* --- تم تعديل هذا القسم لحل مشكلة الموبايل --- */}
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Upload Proof</Label>
                   <div className="flex items-center gap-2">
-                    <label className="flex-1 flex items-center justify-center gap-2 h-11 rounded-md border border-dashed border-border bg-secondary cursor-pointer hover:border-primary/50 transition-colors">
+                    <label 
+                      htmlFor="file-upload"
+                      className="flex-1 flex items-center justify-center gap-2 h-11 rounded-md border border-dashed border-border bg-secondary cursor-pointer hover:border-primary/50 transition-colors"
+                    >
                       <Upload className="w-4 h-4 text-muted-foreground" />
                       <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
-                      <input 
-                        type="file" 
-                        className="hidden" 
-                        accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" 
-                        onChange={handleFileChange} 
-                        disabled={submitting} 
-                      />
                     </label>
+                    
+                    {/* تم استخدام sr-only بدلاً من hidden واخراج الـ input خارج الـ label */}
+                    <input 
+                      id="file-upload"
+                      type="file" 
+                      className="sr-only" 
+                      accept="image/*" 
+                      onChange={handleFileChange} 
+                      disabled={submitting} 
+                    />
+
                     {file && (
                       <span className="text-xs text-green-500 font-medium truncate max-w-[120px]" title={file.name}>
                         ✓ {file.name}
@@ -239,6 +244,8 @@ export default function DepositPage() {
                   </div>
                   {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
                 </div>
+                {/* --------------------------------------------- */}
+
               </div>
               <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto mt-4">
                 {submitting ? "Submitting..." : "Submit Deposit"}
