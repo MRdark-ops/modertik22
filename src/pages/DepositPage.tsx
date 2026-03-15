@@ -73,6 +73,9 @@ export default function DepositPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     try {
       const selected = e.target.files?.[0];
+      // إعادة تعيين قيمة الـ input لضمان إمكانية اختيار نفس الملف مرة أخرى إذا لزم الأمر
+      e.target.value = ''; 
+      
       if (!selected) return;
       
       const normalizedType = selected.type === "image/jpg" ? "image/jpeg" : selected.type;
@@ -214,27 +217,27 @@ export default function DepositPage() {
                   {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
                 </div>
                 
-                {/* --- تم تعديل هذا القسم لحل مشكلة الموبايل --- */}
+                {/* --- حل مشكلة الرفع في الهاتف: استخدام طبقة Input شفافة فوق الزر --- */}
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Upload Proof</Label>
                   <div className="flex items-center gap-2">
-                    <label 
-                      htmlFor="file-upload"
-                      className="flex-1 flex items-center justify-center gap-2 h-11 rounded-md border border-dashed border-border bg-secondary cursor-pointer hover:border-primary/50 transition-colors"
-                    >
-                      <Upload className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
-                    </label>
-                    
-                    {/* تم استخدام sr-only بدلاً من hidden واخراج الـ input خارج الـ label */}
-                    <input 
-                      id="file-upload"
-                      type="file" 
-                      className="sr-only" 
-                      accept="image/*" 
-                      onChange={handleFileChange} 
-                      disabled={submitting} 
-                    />
+                    {/* حاوية نسبية لتحتوي الطبقة الشفافة */}
+                    <div className="relative flex-1 h-11">
+                      {/* حقل الملف: شفاف تماماً، يغطي كامل المساحة، ويقع فوق كل شيء */}
+                      <input 
+                        type="file" 
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+                        accept="image/png,image/jpeg,image/webp,image/jpg" 
+                        onChange={handleFileChange} 
+                        disabled={submitting} 
+                      />
+                      
+                      {/* التصميم المرئي للزر (يقع تحت الطبقة الشفافة) */}
+                      <div className="flex items-center justify-center gap-2 h-full rounded-md border border-dashed border-border bg-secondary pointer-events-none">
+                        <Upload className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
+                      </div>
+                    </div>
 
                     {file && (
                       <span className="text-xs text-green-500 font-medium truncate max-w-[120px]" title={file.name}>
@@ -244,7 +247,7 @@ export default function DepositPage() {
                   </div>
                   {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
                 </div>
-                {/* --------------------------------------------- */}
+                {/* ------------------------------------------------------- */}
 
               </div>
               <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto mt-4">
