@@ -305,7 +305,7 @@ export default function DepositPage() {
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <a
-              href="https://t.me/powerattack"
+              href="https://t.me/+LTalTZUMH2RmNGQ0"
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => setShowTelegram(false)}
