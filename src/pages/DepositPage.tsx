@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ArrowDownToLine, Upload, CheckCircle, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -20,7 +20,10 @@ import {
 } from "@/components/ui/dialog";
 
 const depositSchema = z.object({
-  amount: z.number({ invalid_type_error: "Please enter a valid amount" }).min(10, "Minimum deposit is $10").max(100000, "Maximum deposit is $100,000"),
+  amount: z
+    .number({ invalid_type_error: "Please enter a valid amount" })
+    .min(10, "Minimum deposit is $10")
+    .max(100000, "Maximum deposit is $100,000"),
 });
 
 const ALLOWED_FILE_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
@@ -33,7 +36,7 @@ export default function DepositPage() {
     }
     return "";
   });
-  
+
   const [file, setFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -43,6 +46,9 @@ export default function DepositPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+
+  // ✅ الحل الحقيقي للجوّال: ref مباشر للـ input المخفي
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (amount) {
@@ -70,15 +76,13 @@ export default function DepositPage() {
     enabled: !!user,
   });
 
-  // ✅ FIX 1: e.target.value is cleared AFTER saving the file to state,
-  //    not before — which was causing the file to be lost on some browsers/devices.
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     try {
       const selected = e.target.files?.[0];
-
       if (!selected) return;
 
-      const normalizedType = selected.type === "image/jpg" ? "image/jpeg" : selected.type;
+      const normalizedType =
+        selected.type === "image/jpg" ? "image/jpeg" : selected.type;
       const ext = selected.name?.split(".").pop()?.toLowerCase();
       const validExtensions = ["png", "jpg", "jpeg", "webp"];
       const typeValid =
@@ -86,23 +90,34 @@ export default function DepositPage() {
         (!selected.type && validExtensions.includes(ext || ""));
 
       if (!typeValid) {
-        setErrors(prev => ({ ...prev, file: "Only PNG, JPEG, and WebP images are allowed" }));
-        e.target.value = ""; // clear only on error
+        setErrors((prev) => ({
+          ...prev,
+          file: "Only PNG, JPEG, and WebP images are allowed",
+        }));
+        setTimeout(() => {
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        }, 100);
         return;
       }
       if (selected.size > MAX_FILE_SIZE) {
-        setErrors(prev => ({ ...prev, file: "File must be under 5MB" }));
-        e.target.value = ""; // clear only on error
+        setErrors((prev) => ({ ...prev, file: "File must be under 5MB" }));
+        setTimeout(() => {
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        }, 100);
         return;
       }
 
-      setErrors(prev => {
+      // ✅ حفظ الملف أولاً قبل أي شيء آخر
+      setFile(selected);
+      setErrors((prev) => {
         const { file, ...rest } = prev;
         return rest;
       });
-      setFile(selected);
-      // Clear AFTER the file is saved so re-selecting the same file works
-      e.target.value = "";
+
+      // ✅ مسح القيمة بتأخير للسماح بإعادة اختيار نفس الملف لاحقاً
+      setTimeout(() => {
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }, 100);
     } catch (err) {
       console.error("File selection error:", err);
     }
@@ -118,7 +133,7 @@ export default function DepositPage() {
     const result = depositSchema.safeParse({ amount: parseFloat(amount) });
     if (!result.success) {
       const fieldErrors: Record<string, string> = {};
-      result.error.errors.forEach(err => {
+      result.error.errors.forEach((err) => {
         fieldErrors.amount = err.message;
       });
       setErrors(fieldErrors);
@@ -146,10 +161,10 @@ export default function DepositPage() {
       });
       formData.append("file", fixedFile);
 
-      const { data: uploadData, error: uploadError } = await supabase.functions.invoke(
-        "upload-deposit-proof",
-        { body: formData }
-      );
+      const { data: uploadData, error: uploadError } =
+        await supabase.functions.invoke("upload-deposit-proof", {
+          body: formData,
+        });
 
       if (uploadError || !uploadData?.path) {
         const errMsg =
@@ -219,9 +234,7 @@ export default function DepositPage() {
               </p>
             </div>
 
-            {/* ✅ FIX 2: Removed the <form> wrapper entirely.
-                A plain <div> prevents any accidental form submission / page reload
-                when interacting with the file input on mobile browsers. */}
+            {/* div بدل form لتجنب إعادة تحميل الصفحة */}
             <div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -230,7 +243,7 @@ export default function DepositPage() {
                     type="number"
                     placeholder="100.00"
                     value={amount}
-                    onChange={e => setAmount(e.target.value)}
+                    onChange={(e) => setAmount(e.target.value)}
                     className={`bg-secondary border-border focus:border-primary h-11 ${
                       errors.amount ? "border-destructive" : ""
                     }`}
@@ -239,38 +252,43 @@ export default function DepositPage() {
                     step="0.01"
                     disabled={submitting}
                   />
-                  {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
+                  {errors.amount && (
+                    <p className="text-xs text-destructive">{errors.amount}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Upload Proof</Label>
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-1 h-11">
-                      <input
-                        type="file"
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                        accept="image/png,image/jpeg,image/webp,image/jpg"
-                        onChange={handleFileChange}
-                        disabled={submitting}
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-md border border-dashed border-border bg-secondary pointer-events-none">
-                        <Upload className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">
-                          {file ? "Change file" : "Choose file"}
-                        </span>
-                      </div>
-                    </div>
 
-                    {file && (
-                      <span
-                        className="text-xs text-green-500 font-medium truncate max-w-[120px]"
-                        title={file.name}
-                      >
-                        ✓ {file.name}
-                      </span>
-                    )}
-                  </div>
-                  {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
+                  {/* ✅ input مخفي تماماً — لا تراكب ولا z-index */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept="image/png,image/jpeg,image/webp,image/jpg"
+                    onChange={handleFileChange}
+                    disabled={submitting}
+                  />
+
+                  {/* ✅ زر حقيقي يستدعي الـ input عبر ref — يعمل على iOS وAndroid */}
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`w-full h-11 flex items-center justify-center gap-2 rounded-md border border-dashed bg-secondary transition-colors
+                      ${errors.file ? "border-destructive" : "border-border"}
+                      ${submitting ? "opacity-50 cursor-not-allowed" : "hover:bg-secondary/80 active:bg-secondary/60 cursor-pointer"}
+                    `}
+                  >
+                    <Upload className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">
+                      {file ? `✓ ${file.name}` : "Choose file"}
+                    </span>
+                  </button>
+
+                  {errors.file && (
+                    <p className="text-xs text-destructive">{errors.file}</p>
+                  )}
                 </div>
               </div>
 
@@ -363,7 +381,7 @@ export default function DepositPage() {
       <Dialog open={showTelegram} onOpenChange={setShowTelegram}>
         <DialogContent
           className="sm:max-w-md bg-card border-border"
-          onInteractOutside={e => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
         >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-foreground">
