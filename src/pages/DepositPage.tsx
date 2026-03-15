@@ -73,16 +73,18 @@ export default function DepositPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     try {
       const selected = e.target.files?.[0];
-      // إعادة تعيين قيمة الـ input لضمان إمكانية اختيار نفس الملف مرة أخرى إذا لزم الأمر
-      e.target.value = ''; 
       
+      // إعادة تعيين قيمة الـ input لتمكين اختيار نفس الملف مجدداً إذا لزم الأمر
+      // نضعها في نهاية الدالة أو هنا لضمان نظافة الحالة
+      if (e.target) e.target.value = ''; 
+
       if (!selected) return;
-      
+
       const normalizedType = selected.type === "image/jpg" ? "image/jpeg" : selected.type;
       const ext = selected.name?.split(".").pop()?.toLowerCase();
       const validExtensions = ["png", "jpg", "jpeg", "webp"];
       const typeValid = ALLOWED_FILE_TYPES.includes(normalizedType) || (!selected.type && validExtensions.includes(ext || ""));
-      
+
       if (!typeValid) {
         setErrors(prev => ({ ...prev, file: "Only PNG, JPEG, and WebP images are allowed" }));
         return;
@@ -91,7 +93,7 @@ export default function DepositPage() {
         setErrors(prev => ({ ...prev, file: "File must be under 5MB" }));
         return;
       }
-      
+
       setErrors(prev => { const { file, ...rest } = prev; return rest; });
       setFile(selected);
     } catch (err) {
@@ -106,6 +108,8 @@ export default function DepositPage() {
 
   const handleSubmit = async () => {
     setErrors({});
+    
+    // التحقق من المبلغ
     const result = depositSchema.safeParse({ amount: parseFloat(amount) });
     if (!result.success) {
       const fieldErrors: Record<string, string> = {};
@@ -113,6 +117,8 @@ export default function DepositPage() {
       setErrors(fieldErrors);
       return;
     }
+    
+    // التحقق من الملف
     if (!file) {
       setErrors({ file: "Please upload proof of payment" });
       return;
@@ -217,27 +223,31 @@ export default function DepositPage() {
                   {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
                 </div>
                 
-                {/* --- حل مشكلة الرفع في الهاتف: استخدام طبقة Input شفافة فوق الزر --- */}
+                {/* --- بداية جزء رفع الصورة المصحح --- */}
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Upload Proof</Label>
                   <div className="flex items-center gap-2">
-                    {/* حاوية نسبية لتحتوي الطبقة الشفافة */}
-                    <div className="relative flex-1 h-11">
-                      {/* حقل الملف: شفاف تماماً، يغطي كامل المساحة، ويقع فوق كل شيء */}
+                    
+                    {/* 
+                       الحل: استخدام Label كغلاف للحقل.
+                       هذا يمنع مشاكل الـ z-index والضغط الخاطئ على الهاتف.
+                       الحقل input مخفي تماماً (hidden)، والضغط على الـ label يفعله.
+                    */}
+                    <label className="relative flex-1 h-11 cursor-pointer">
                       <input 
                         type="file" 
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+                        className="hidden" // إخفاء الحقل الأصلي تماماً
                         accept="image/png,image/jpeg,image/webp,image/jpg" 
                         onChange={handleFileChange} 
                         disabled={submitting} 
                       />
                       
-                      {/* التصميم المرئي للزر (يقع تحت الطبقة الشفافة) */}
-                      <div className="flex items-center justify-center gap-2 h-full rounded-md border border-dashed border-border bg-secondary pointer-events-none">
+                      {/* التصميم المرئي للزر - يظهر كزر عادي */}
+                      <div className="flex items-center justify-center gap-2 h-full w-full rounded-md border border-dashed border-border bg-secondary hover:bg-secondary/80 transition-colors">
                         <Upload className="w-4 h-4 text-muted-foreground" />
                         <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
                       </div>
-                    </div>
+                    </label>
 
                     {file && (
                       <span className="text-xs text-green-500 font-medium truncate max-w-[120px]" title={file.name}>
@@ -247,7 +257,7 @@ export default function DepositPage() {
                   </div>
                   {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
                 </div>
-                {/* ------------------------------------------------------- */}
+                {/* --- نهاية جزء رفع الصورة المصحح --- */}
 
               </div>
               <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto mt-4">
