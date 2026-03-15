@@ -174,9 +174,8 @@ export default function DepositPage() {
 
   return (
     <DashboardLayout title="Deposit Funds">
-      {/* أضفنا touch-manipulation لمنع التحديث بالسحب والرجوع باللمس */}
       <div 
-        className="space-y-6 animate-fade-in max-w-4xl overscroll-contain touch-manipulation"
+        className="space-y-6 animate-fade-in max-w-4xl"
         onDragOver={preventDragHandler}
         onDrop={preventDragHandler}
       >
@@ -201,19 +200,6 @@ export default function DepositPage() {
               </p>
             </div>
             
-            {/* 
-               حقل الإدخال وضعناه خارج الـ form لمنع أي تعارض.
-               استخدمنا sr-only (screen reader only) ليكون مخفياً بصرياً لكن وظيفياً 100% عبر الـ label
-            */}
-            <input 
-              type="file" 
-              id="mobile-proof-upload"
-              className="sr-only" 
-              accept="image/png,image/jpeg,image/webp,image/jpg" 
-              onChange={handleFileChange} 
-              disabled={submitting} 
-            />
-
             <form onSubmit={(e) => e.preventDefault()}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -232,28 +218,29 @@ export default function DepositPage() {
                   {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
                 </div>
                 
-                {/* --- زر رفع الصور المصحح --- */}
+                {/* --- الحل النهائي والمضمون للهواتف --- */}
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Upload Proof</Label>
                   <div className="flex items-center gap-2">
                     
-                    {/* 
-                       نستخدم label مربوط بـ id الحقل.
-                       هذا يمنع مشاكل الـ z-index ومشاكل اللمس في الهواتف بالكامل.
-                    */}
-                    <label 
-                      htmlFor="mobile-proof-upload"
-                      className={`
-                        flex-1 h-11 flex items-center justify-center gap-2 
-                        rounded-md border border-dashed border-border bg-secondary 
-                        cursor-pointer transition-colors
-                        hover:bg-secondary/80
-                        ${submitting ? 'opacity-50 pointer-events-none' : ''}
-                      `}
-                    >
-                      <Upload className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
-                    </label>
+                    {/* حاوية نسبية لوضع الطبقات فوق بعض */}
+                    <div className="relative flex-1 h-11">
+                      
+                      {/* طبقة الـ Input: شفافة تماماً، موجودة في الأعلى (z-10) لاستقبال اللمس المباشر */}
+                      <input 
+                        type="file" 
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+                        accept="image/png,image/jpeg,image/webp,image/jpg" 
+                        onChange={handleFileChange} 
+                        disabled={submitting} 
+                      />
+                      
+                      {/* طبقة التصميم: موجودة في الأسفل، لا تتفاعل (pointer-events-none) */}
+                      <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-md border border-dashed border-border bg-secondary pointer-events-none">
+                        <Upload className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">{file ? "Change file" : "Choose file"}</span>
+                      </div>
+                    </div>
 
                     {file && (
                       <span className="text-xs text-green-500 font-medium truncate max-w-[120px]" title={file.name}>
@@ -263,7 +250,7 @@ export default function DepositPage() {
                   </div>
                   {errors.file && <p className="text-xs text-destructive">{errors.file}</p>}
                 </div>
-                {/* -------------------------- */}
+                {/* ----------------------------------- */}
 
               </div>
               <Button type="button" onClick={handleSubmit} disabled={submitting} className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto mt-4">
