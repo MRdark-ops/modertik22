@@ -27,7 +27,6 @@ const ALLOWED_FILE_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp"
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 export default function DepositPage() {
-  // تعديل: تهيئة الـ State بالقراءة من localStorage إذا كان موجوداً
   const [amount, setAmount] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("depositAmountDraft") || "";
@@ -45,7 +44,6 @@ export default function DepositPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  // تعديل: حفظ المبلغ تلقائياً في localStorage عند أي تغيير
   useEffect(() => {
     if (amount) {
       localStorage.setItem("depositAmountDraft", amount);
@@ -54,7 +52,6 @@ export default function DepositPage() {
     }
   }, [amount]);
 
-  // Auto-close telegram popup after 1 minute
   useEffect(() => {
     if (!showTelegram) return;
     const timer = setTimeout(() => setShowTelegram(false), 60000);
@@ -77,10 +74,7 @@ export default function DepositPage() {
     const selected = e.target.files?.[0];
     if (!selected) return;
     
-    // Normalize MIME type for mobile compatibility
     const normalizedType = selected.type === "image/jpg" ? "image/jpeg" : selected.type;
-    
-    // On some Android devices, type may be empty for camera photos - allow if extension matches
     const ext = selected.name?.split(".").pop()?.toLowerCase();
     const validExtensions = ["png", "jpg", "jpeg", "webp"];
     const typeValid = ALLOWED_FILE_TYPES.includes(normalizedType) || (!selected.type && validExtensions.includes(ext || ""));
@@ -116,7 +110,6 @@ export default function DepositPage() {
     setSubmitting(true);
     try {
       const formData = new FormData();
-      // Re-create file blob to ensure correct MIME type on mobile
       const ext = file.name?.split(".").pop()?.toLowerCase();
       const mimeMap: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
       const correctMime = file.type || mimeMap[ext || ""] || "image/jpeg";
@@ -154,10 +147,9 @@ export default function DepositPage() {
         setShowConfirmation(true);
         setTimeout(() => setShowTelegram(true), 3000);
         
-        // تعديل: مسح البيانات المحفوظة ومسح الحقول
         setAmount("");
         setFile(null);
-        localStorage.removeItem("depositAmountDraft"); // مسح النسخة الاحتياطية
+        localStorage.removeItem("depositAmountDraft");
         
         queryClient.invalidateQueries({ queryKey: ["deposits"] });
       }
@@ -178,7 +170,18 @@ export default function DepositPage() {
             <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
               <p className="text-sm font-medium text-primary mb-1">Payment Instructions</p>
               <p className="text-sm text-muted-foreground">Send your deposit via Binance Pay to the following address and upload proof below.</p>
-              <p className="text-xs text-muted-foreground mt-2 font-mono bg-secondary/50 p-2 rounded">Wallet: https://s.binance.com/rBn1DAvU</p>
+              {/* ✅ تم تحويل الرابط إلى عنصر قابل للنقر */}
+              <p className="text-xs text-muted-foreground mt-2 font-mono bg-secondary/50 p-2 rounded">
+                Wallet:{" "}
+                <a
+                  href="https://s.binance.com/rBn1DAvU"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline cursor-pointer"
+                >
+                  https://s.binance.com/rBn1DAvU
+                </a>
+              </p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -206,7 +209,6 @@ export default function DepositPage() {
                       type="file" 
                       className="hidden" 
                       accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" 
-                      //capture="environment" // تم إزالة هذا السطر لمنع فتح الكاميرا مباشرة وإعطاء خيار الاختيار
                       onChange={handleFileChange} 
                       disabled={submitting} 
                     />
@@ -309,7 +311,7 @@ export default function DepositPage() {
               onClick={() => setShowTelegram(false)}
               className="block w-full text-center py-3 px-4 rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors"
             >
-              t.me/powerattack
+              https://t.me/+LTalTZUMH2RmNGQ0
             </a>
           </div>
         </DialogContent>
