@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ArrowDownToLine, Upload, CheckCircle, X } from "lucide-react";
+import { ArrowDownToLine, Upload, CheckCircle, X, ExternalLink } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
@@ -43,10 +43,23 @@ export default function DepositPage() {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [showTelegram, setShowTelegram] = useState(false);
   const [lastDepositAmount, setLastDepositAmount] = useState("");
+  
+  // ✅ حالة لمعرفة هل نحن داخل تطبيق AppCreator24 أم لا
+  const [isInsideApp, setIsInsideApp] = useState(false);
+
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // كشف إذا كان المستخدم داخل تطبيق (WebView)
+    // نتحقق من كلمة 'wv' أو 'WebView' في الـ userAgent
+    const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+    if (/wv|WebView|Android.*(?!Chrome)/i.test(userAgent)) {
+      setIsInsideApp(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (amount) {
@@ -214,6 +227,28 @@ export default function DepositPage() {
         onDragOver={preventDragHandler}
         onDrop={preventDragHandler}
       >
+        
+        {/* ✅✅✅ الحل النهائي: إشعار يظهر داخل التطبيق فقط ✅✅✅ */}
+        {isInsideApp && (
+          <div className="p-4 bg-red-500/10 border border-red-500 rounded-lg text-center mb-4">
+            <p className="text-red-700 dark:text-red-200 font-bold mb-2">
+              ⚠️ Upload Not Supported In-App
+            </p>
+            <p className="text-sm text-red-600 dark:text-red-300 mb-3">
+              The app does not support file upload. Please tap the button below to open this page in your browser (Chrome/Safari) to complete the deposit.
+            </p>
+            <a
+              href={window.location.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 bg-red-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-red-700 w-full"
+            >
+              <ExternalLink className="w-5 h-5" />
+              Open in External Browser
+            </a>
+          </div>
+        )}
+
         <div className="glass-card p-6">
           <h3 className="font-display text-lg font-semibold mb-4 flex items-center gap-2">
             <ArrowDownToLine className="w-5 h-5 text-primary" /> New Deposit
@@ -262,31 +297,34 @@ export default function DepositPage() {
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Upload Proof</Label>
 
-                  {/* ✅✅✅ الحل النهائي: طبقة Input شفافة فوق الزر ✅✅✅ */}
-                  <div className="relative w-full h-11">
-                    
-                    {/* الـ Input الشفاف الذي سيستقبل الضغط مباشرة */}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileChange}
-                      disabled={submitting}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                    />
-                    
-                    {/* تصميم الزر الذي يظهر للمستخدم (تحت الطبقة الشفافة) */}
-                    <div className={`w-full h-full flex items-center justify-center gap-2 rounded-md border border-dashed bg-secondary transition-colors pointer-events-none
-                      ${errors.file ? "border-destructive" : "border-border"}
-                      ${submitting ? "opacity-50" : ""}
-                    `}>
-                      <Upload className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground truncate max-w-[150px]">
-                        {file ? `✓ ${file.name}` : "Choose file"}
-                      </span>
+                  {/* ✅✅✅ منطق الإخفاء: إظهار الرسالة داخل التطبيق، وزر الرفع في المتصفح ✅✅✅ */}
+                  {isInsideApp ? (
+                     // نعرض رسالة تحذيرية داخل التطبيق بدل الزر المكسور
+                     <div className="w-full h-11 flex items-center justify-center border border-dashed border-yellow-500 bg-yellow-500/10 rounded-md text-yellow-600 text-sm text-center px-2">
+                        Upload via External Browser Button Above
+                     </div>
+                  ) : (
+                    // زر الرفع الطبيعي يظهر فقط في المتصفح العادي
+                    <div className="relative w-full h-11">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileChange}
+                        disabled={submitting}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      />
+                      <div className={`w-full h-full flex items-center justify-center gap-2 rounded-md border border-dashed bg-secondary transition-colors pointer-events-none
+                        ${errors.file ? "border-destructive" : "border-border"}
+                        ${submitting ? "opacity-50" : ""}
+                      `}>
+                        <Upload className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground truncate max-w-[150px]">
+                          {file ? `✓ ${file.name}` : "Choose file"}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                  {/* ✅✅✅ نهاية الحل ✅✅✅ */}
+                  )}
 
                   {errors.file && (
                     <p className="text-xs text-destructive">{errors.file}</p>
@@ -297,7 +335,7 @@ export default function DepositPage() {
               <Button
                 type="button"
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={submitting || isInsideApp} // تعطيل الزر داخل التطبيق
                 className="bg-primary text-primary-foreground hover:bg-primary/90 w-full md:w-auto mt-4"
               >
                 {submitting ? "Submitting..." : "Submit Deposit"}
