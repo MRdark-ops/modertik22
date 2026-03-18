@@ -47,7 +47,6 @@ export default function DepositPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  // ✅ الحل الحقيقي للجوّال: ref مباشر للـ input المخفي
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -107,14 +106,12 @@ export default function DepositPage() {
         return;
       }
 
-      // ✅ حفظ الملف أولاً قبل أي شيء آخر
       setFile(selected);
       setErrors((prev) => {
         const { file, ...rest } = prev;
         return rest;
       });
 
-      // ✅ مسح القيمة بتأخير للسماح بإعادة اختيار نفس الملف لاحقاً
       setTimeout(() => {
         if (fileInputRef.current) fileInputRef.current.value = "";
       }, 100);
@@ -161,7 +158,6 @@ export default function DepositPage() {
       });
       formData.append("file", fixedFile);
 
-      // ✅ fetch مباشر بدل supabase.functions.invoke لأن invoke يُفسد FormData على الجوّال
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
 
@@ -172,7 +168,6 @@ export default function DepositPage() {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          // ✅ لا تضع Content-Type يدوياً — المتصفح يضعه تلقائياً مع الـ boundary الصحيح
         },
         body: formData,
       });
@@ -251,7 +246,6 @@ export default function DepositPage() {
               </p>
             </div>
 
-            {/* div بدل form لتجنب إعادة تحميل الصفحة */}
             <div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -277,31 +271,30 @@ export default function DepositPage() {
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Upload Proof</Label>
 
-                  {/* ✅ input مخفي تماماً — لا تراكب ولا z-index */}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="hidden"
-                    accept="image/png,image/jpeg,image/webp,image/jpg"
-                    onChange={handleFileChange}
-                    disabled={submitting}
-                  />
-
-                  {/* ✅ زر حقيقي يستدعي الـ input عبر ref — يعمل على iOS وAndroid */}
-                  <button
-                    type="button"
-                    disabled={submitting}
-                    onClick={() => fileInputRef.current?.click()}
+                  {/* ✅✅✅ بداية التعديل (الحل الأول) ✅✅✅ */}
+                  {/* استخدام label يغلف الـ input يحل مشكلة الويب فيو */}
+                  <label
                     className={`w-full h-11 flex items-center justify-center gap-2 rounded-md border border-dashed bg-secondary transition-colors
                       ${errors.file ? "border-destructive" : "border-border"}
-                      ${submitting ? "opacity-50 cursor-not-allowed" : "hover:bg-secondary/80 active:bg-secondary/60 cursor-pointer"}
+                      ${submitting ? "opacity-50 cursor-not-allowed" : "hover:bg-secondary/80 cursor-pointer"}
                     `}
                   >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden" // إخفاء الـ input
+                      accept="image/*" // قبول كل الصور لضمان فتح المعرض في الجوال
+                      onChange={handleFileChange}
+                      disabled={submitting}
+                    />
+                    
+                    {/* محتوى الزر */}
                     <Upload className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">
+                    <span className="text-sm text-muted-foreground truncate max-w-[150px]">
                       {file ? `✓ ${file.name}` : "Choose file"}
                     </span>
-                  </button>
+                  </label>
+                  {/* ✅✅✅ نهاية التعديل ✅✅✅ */}
 
                   {errors.file && (
                     <p className="text-xs text-destructive">{errors.file}</p>
@@ -355,7 +348,6 @@ export default function DepositPage() {
         </div>
       </div>
 
-      {/* Deposit Confirmation Modal */}
       <Dialog open={showConfirmation} onOpenChange={setShowConfirmation}>
         <DialogContent className="sm:max-w-md bg-card border-border">
           <DialogHeader>
@@ -394,7 +386,6 @@ export default function DepositPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Telegram Channel Popup */}
       <Dialog open={showTelegram} onOpenChange={setShowTelegram}>
         <DialogContent
           className="sm:max-w-md bg-card border-border"
