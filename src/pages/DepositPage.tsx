@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ArrowDownToLine, Upload, CheckCircle, X } from "lucide-react";
+import { ArrowDownToLine, Upload, CheckCircle, X, ExternalLink } from "lucide-react"; // أضفنا ExternalLink
 import { useState, useEffect, useRef } from "react";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
@@ -43,11 +43,27 @@ export default function DepositPage() {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [showTelegram, setShowTelegram] = useState(false);
   const [lastDepositAmount, setLastDepositAmount] = useState("");
+  
+  // ✅ حالة لمعرفة هل المستخدم داخل التطبيق أم المتصفح
+  const [isWebView, setIsWebView] = useState(false);
+
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // كشف ما إذا كان المستخدم يستخدم التطبيق (WebView)
+    // AppCreator24 وغيرها عادة ما يكون الـ userAgent خاصاً أو يمكن كشفه
+    const standalone = window.matchMedia("(display-mode: standalone)").matches;
+    const userAgent = navigator.userAgent.toLowerCase();
+    // هذا الشرط يغطي معظم تطبيقات الويب فيو
+    if (standalone || userAgent.includes("wv") || userAgent.includes("android")) {
+       // للتأكد أكثر، يمكننا افتراض أنه إذا لم يكن متصفحاً كاملاً فهو تطبيق
+       // لكن هنا سنستخدم طريقة بسيطة: إذا كان الـ standalone أو يحتوي على wv
+       setIsWebView(standalone || userAgent.includes("wv"));
+    }
+  }, []);
 
   useEffect(() => {
     if (amount) {
@@ -223,6 +239,25 @@ export default function DepositPage() {
         onDragOver={preventDragHandler}
         onDrop={preventDragHandler}
       >
+        
+        {/* ✅✅✅ زر خاص بتطبيق AppCreator24 ✅✅✅ */}
+        {isWebView && (
+          <div className="p-4 bg-yellow-500/10 border border-yellow-500 rounded-lg text-center">
+            <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-2">
+              Having trouble uploading in the app?
+            </p>
+            <a 
+              href={window.location.href} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 bg-yellow-500 text-black font-bold py-2 px-4 rounded-md hover:bg-yellow-400 transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Open in Browser
+            </a>
+          </div>
+        )}
+
         <div className="glass-card p-6">
           <h3 className="font-display text-lg font-semibold mb-4 flex items-center gap-2">
             <ArrowDownToLine className="w-5 h-5 text-primary" /> New Deposit
@@ -271,8 +306,7 @@ export default function DepositPage() {
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">Upload Proof</Label>
 
-                  {/* ✅✅✅ بداية التعديل (الحل الأول) ✅✅✅ */}
-                  {/* استخدام label يغلف الـ input يحل مشكلة الويب فيو */}
+                  {/* ✅ استخدام الـ label ليغلف الـ input للحل مشكلة الويب فيو */}
                   <label
                     className={`w-full h-11 flex items-center justify-center gap-2 rounded-md border border-dashed bg-secondary transition-colors
                       ${errors.file ? "border-destructive" : "border-border"}
@@ -282,19 +316,17 @@ export default function DepositPage() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      className="hidden" // إخفاء الـ input
-                      accept="image/*" // قبول كل الصور لضمان فتح المعرض في الجوال
+                      className="hidden"
+                      accept="image/*"
                       onChange={handleFileChange}
                       disabled={submitting}
                     />
                     
-                    {/* محتوى الزر */}
                     <Upload className="w-4 h-4 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground truncate max-w-[150px]">
                       {file ? `✓ ${file.name}` : "Choose file"}
                     </span>
                   </label>
-                  {/* ✅✅✅ نهاية التعديل ✅✅✅ */}
 
                   {errors.file && (
                     <p className="text-xs text-destructive">{errors.file}</p>
