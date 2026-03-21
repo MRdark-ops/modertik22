@@ -23,30 +23,6 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      // حفظ الدالة الأصلية
-      const originalOpen = window.open;
-      
-      // إعادة تعريف الدالة لمنع الفتح التلقائي
-      window.open = function(url, target, windowFeatures) {
-        // إذا كان الفتح ناتجاً عن ضغطة حقيقية من المستخدم (click) نسمح به
-        if (event && event.isTrusted && event.type === 'click') {
-             return originalOpen.apply(this, arguments);
-        }
-        // إذا كان تلقائياً (سكريبت إعلانات) نمنعه
-        console.log("Blocked automatic redirect to: " + url);
-        return null;
-      };
-    </script>
-    <script>
-  atOptions = {
-    'key' : '88a59ca5015149811d63351ef573e3b1',
-    'format' : 'iframe',
-    'height' : 250,
-    'width' : 300,
-    'params' : {}
-  };
-</script>
-<script src="https://www.highperformanceformat.com/88a59ca5015149811d63351ef573e3b1/invoke.js"></script>
+    
   </body>
 </html>
