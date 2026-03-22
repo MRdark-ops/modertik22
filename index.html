@@ -23,30 +23,73 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!-- سكريبت منع الإعلانات المزعجة وإعادة التوجيه -->
     <script>
-      // حفظ الدالة الأصلية
+      // 1. حماية window.open (منع النوافذ المنبثقة Popunders)
       const originalOpen = window.open;
-      
-      // إعادة تعريف الدالة لمنع الفتح التلقائي
       window.open = function(url, target, windowFeatures) {
-        // إذا كان الفتح ناتجاً عن ضغطة حقيقية من المستخدم (click) نسمح به
-        if (event && event.isTrusted && event.type === 'click') {
-             return originalOpen.apply(this, arguments);
+        const e = window.event; // الحصول على الحدث الحالي
+        
+        // التحقق من وجود حدث نقر حقيقي
+        if (e && e.isTrusted && e.type === 'click') {
+          // التحقق مما إذا كان الهدف من النقر هو عنصر تفاعلي حقيقي (رابط أو زر)
+          // الإعلانات الخبيثة غالباً ما تلتقط النقر على الـ body أو divs فارغة
+          const targetElement = e.target;
+          const isInteractive = targetElement.closest('a, button, [role="button"], input, select');
+          
+          if (isInteractive) {
+            // إذا كان النقر على زر أو رابط حقيقي، نسمح به
+            return originalOpen.apply(this, arguments);
+          }
         }
-        // إذا كان تلقائياً (سكريبت إعلانات) نمنعه
-        console.log("Blocked automatic redirect to: " + url);
+        
+        // في حال كان نقراً وهمياً أو على خلفية الصفحة (إعلان) نمنعه
+        console.log("Blocked ad redirect (Popunder) to: " + url);
         return null;
       };
+
+      // 2. حماية تغيير عنوان الصفحة عبر iframes
+      // منع الإطارات من تغيير موقع الصفحة الأم (top.location)
+      const originalAppendChild = Element.prototype.appendChild;
+      Element.prototype.appendChild = function(node) {
+        if (node.tagName === 'IFRAME') {
+          // إضافة خاصية sandbox لمنع الانتقال للصفحة الأم
+          // 'allow-scripts' يسمح للإعلان بالعمل، لكن 'allow-top-navigation' مفقود مما يمنع إعادة التوجيه
+          node.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+        }
+        return originalAppendChild.call(this, node);
+      };
+
+      // مراقب لتغييرات DOM لإضافة sandbox لأي iframe يتم حقنه لاحقاً
+      const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+          mutation.addedNodes.forEach(function(node) {
+            if (node.tagName === 'IFRAME') {
+              if (!node.hasAttribute('sandbox')) {
+                node.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+              }
+            }
+          });
+        });
+      });
+
+      // بدء المراقبة بعد تحميل الصفحة
+      document.addEventListener('DOMContentLoaded', function() {
+        observer.observe(document.body, { childList: true, subtree: true });
+      });
     </script>
+
+    <!-- كود الإعلان الخاص بك -->
     <script>
-  atOptions = {
-    'key' : '88a59ca5015149811d63351ef573e3b1',
-    'format' : 'iframe',
-    'height' : 250,
-    'width' : 300,
-    'params' : {}
-  };
-</script>
-<script src="https://www.highperformanceformat.com/88a59ca5015149811d63351ef573e3b1/invoke.js"></script>
+      atOptions = {
+        'key' : '88a59ca5015149811d63351ef573e3b1',
+        'format' : 'iframe',
+        'height' : 250,
+        'width' : 300,
+        'params' : {}
+      };
+    </script>
+    <script src="https://www.highperformanceformat.com/88a59ca5015149811d63351ef573e3b1/invoke.js"></script>
   </body>
 </html>
