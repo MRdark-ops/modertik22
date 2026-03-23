@@ -61,9 +61,23 @@ export default function UserDashboard() {
     enabled: !!user,
   });
 
+  const { data: allCommissions = [] } = useQuery({
+    queryKey: ["all-commissions", user?.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("referral_commissions")
+        .select("commission_amount, level")
+        .eq("referrer_id", user!.id)
+        .eq("status", "paid");
+      return data || [];
+    },
+    enabled: !!user,
+  });
+
   const balance = profile?.balance ?? 0;
   const totalDeposits = allApprovedDeposits.reduce((sum: number, d: any) => sum + Number(d.amount), 0);
-  const totalCommissions = referralCount * 2.5;
+  const verifiedReferralCount = allCommissions.filter((c: any) => c.level === 1).length;
+  const totalCommissions = allCommissions.reduce((sum: number, c: any) => sum + Number(c.commission_amount), 0);
 
   const recentTransactions = [
     ...recentDeposits.map((d: any) => ({
@@ -82,7 +96,7 @@ export default function UserDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard title="Account Balance" value={`$${Number(balance).toFixed(2)}`} icon={Wallet} />
           <StatCard title="Total Earnings" value={`$${totalCommissions.toFixed(2)}`} icon={TrendingUp} />
-          <StatCard title="Referral Earnings" value={`$${totalCommissions.toFixed(2)}`} icon={Users} subtitle={`${referralCount} referrals × $2.50`} />
+          <StatCard title="Referral Earnings" value={`$${totalCommissions.toFixed(2)}`} icon={Users} subtitle={`${verifiedReferralCount} verified referrals`} />
           <StatCard title="Total Deposits" value={`$${totalDeposits.toFixed(2)}`} icon={DollarSign} subtitle={`${allApprovedDeposits.length} deposits`} />
         </div>
 
@@ -125,14 +139,34 @@ export default function UserDashboard() {
                     <Users className="w-5 h-5 text-primary" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium">Direct Referrals</p>
-                    <p className="text-xs text-muted-foreground">$2.50 per person</p>
+                    <p className="text-sm font-medium">Total Referrals</p>
+                    <p className="text-xs text-muted-foreground">
+                      {referralCount} signed up · {verifiedReferralCount} verified
+                    </p>
                   </div>
                 </div>
                 <div className="text-right">
                   <p className="font-semibold">{referralCount} people</p>
-                  <p className="text-sm gold-gradient-text font-bold">${totalCommissions.toFixed(2)}</p>
+                  <p className="text-xs text-muted-foreground">{verifiedReferralCount} approved</p>
                 </div>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-border/50">
+                <span className="text-sm text-muted-foreground">Direct commissions</span>
+                <span className="text-sm font-semibold">
+                  ${allCommissions
+                    .filter((c: any) => c.level === 1)
+                    .reduce((s: number, c: any) => s + Number(c.commission_amount), 0)
+                    .toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-border/50">
+                <span className="text-sm text-muted-foreground">Indirect commissions</span>
+                <span className="text-sm font-semibold">
+                  ${allCommissions
+                    .filter((c: any) => c.level === 2)
+                    .reduce((s: number, c: any) => s + Number(c.commission_amount), 0)
+                    .toFixed(2)}
+                </span>
               </div>
               <div className="flex items-center justify-between pt-2">
                 <span className="font-semibold">Total Referral Earnings</span>

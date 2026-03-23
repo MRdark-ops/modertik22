@@ -17,7 +17,11 @@ function getCorsHeaders(req: Request) {
   };
 }
 
-
+// Tier-based indirect reward amounts based on position in direct referrer's downline
+// Position 0 = 1st verified referral → $2.00, 1 = 2nd → $1.50, etc.
+const INDIRECT_REWARD_TIERS: number[] = [2.00, 1.50, 1.00, 0.50];
+const INDIRECT_REWARD_DEFAULT = 0.50;
+const DIRECT_REWARD = 2.50;
 
 Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -104,28 +108,131 @@ Deno.serve(async (req) => {
       .eq("id", deposit_id);
 
     if (action === "approve") {
-      // Add to user balance
-      const { data: profile } = await supabaseAdmin
+      // Credit deposit amount to user balance
+      const { data: userProfile } = await supabaseAdmin
         .from("profiles")
-        .select("balance")
+        .select("balance, referred_by")
         .eq("user_id", deposit.user_id)
         .single();
 
-      const newBalance = (parseFloat(profile?.balance || "0")) + parseFloat(deposit.amount);
+      const newBalance = (parseFloat(userProfile?.balance || "0")) + parseFloat(deposit.amount);
       await supabaseAdmin
         .from("profiles")
         .update({ balance: newBalance })
         .eq("user_id", deposit.user_id);
 
-      // Referral reward is granted at signup (flat $2.50 per direct referral),
-      // so no commission payout is done during deposit approval.
-
-      // Log activity
+      // Log deposit approval
       await supabaseAdmin.from("activity_logs").insert({
         user_id: deposit.user_id,
         action: "deposit_approved",
         details: { deposit_id, amount: deposit.amount, approved_by: user.id },
       });
+
+      // ─── Referral Reward Logic ────────────────────────────────────────────
+      // Rewards are ONLY granted on the first approved deposit for this user.
+      // Direct referrer earns $2.50. Grand-referrer earns tiered indirect reward.
+      if (userProfile?.referred_by) {
+        // Check if referral reward has already been granted for this user
+        const { data: existingCommission } = await supabaseAdmin
+          .from("referral_commissions")
+          .select("id")
+          .eq("referred_id", deposit.user_id)
+          .eq("level", 1)
+          .eq("status", "paid")
+          .maybeSingle();
+
+        if (!existingCommission) {
+          const directReferrerId = userProfile.referred_by;
+
+          // Grant $2.50 direct referral reward
+          await supabaseAdmin.from("referral_commissions").insert({
+            referrer_id: directReferrerId,
+            referred_id: deposit.user_id,
+            deposit_id: deposit.id,
+            level: 1,
+            rate: 0,
+            commission_amount: DIRECT_REWARD,
+            status: "paid",
+          });
+
+          const { data: referrerProfile } = await supabaseAdmin
+            .from("profiles")
+            .select("balance, referred_by")
+            .eq("user_id", directReferrerId)
+            .single();
+
+          await supabaseAdmin
+            .from("profiles")
+            .update({ balance: parseFloat(referrerProfile?.balance || "0") + DIRECT_REWARD })
+            .eq("user_id", directReferrerId);
+
+          await supabaseAdmin.from("activity_logs").insert({
+            user_id: directReferrerId,
+            action: "referral_direct_reward",
+            details: {
+              referred_user_id: deposit.user_id,
+              amount: DIRECT_REWARD,
+              deposit_id: deposit.id,
+            },
+          });
+
+          // ─── Indirect (Tier) Reward to Grand-Referrer ────────────────────
+          if (referrerProfile?.referred_by) {
+            const grandReferrerId = referrerProfile.referred_by;
+
+            // Count how many of the direct referrer's level-1 referrals
+            // were verified BEFORE this one (exclude current to get prior count)
+            const { count: priorCount } = await supabaseAdmin
+              .from("referral_commissions")
+              .select("id", { count: "exact", head: true })
+              .eq("referrer_id", directReferrerId)
+              .eq("level", 1)
+              .eq("status", "paid")
+              .neq("referred_id", deposit.user_id);
+
+            // 0-based position: 0 = this is the 1st referral getting verified → $2.00
+            const position = priorCount ?? 0;
+            const indirectAmount =
+              position < INDIRECT_REWARD_TIERS.length
+                ? INDIRECT_REWARD_TIERS[position]
+                : INDIRECT_REWARD_DEFAULT;
+
+            await supabaseAdmin.from("referral_commissions").insert({
+              referrer_id: grandReferrerId,
+              referred_id: deposit.user_id,
+              deposit_id: deposit.id,
+              level: 2,
+              rate: 0,
+              commission_amount: indirectAmount,
+              status: "paid",
+            });
+
+            const { data: grandProfile } = await supabaseAdmin
+              .from("profiles")
+              .select("balance")
+              .eq("user_id", grandReferrerId)
+              .single();
+
+            await supabaseAdmin
+              .from("profiles")
+              .update({ balance: parseFloat(grandProfile?.balance || "0") + indirectAmount })
+              .eq("user_id", grandReferrerId);
+
+            await supabaseAdmin.from("activity_logs").insert({
+              user_id: grandReferrerId,
+              action: "referral_indirect_reward",
+              details: {
+                indirect_via: directReferrerId,
+                referred_user_id: deposit.user_id,
+                amount: indirectAmount,
+                downline_position: position + 1,
+                deposit_id: deposit.id,
+              },
+            });
+          }
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────
     } else {
       await supabaseAdmin.from("activity_logs").insert({
         user_id: deposit.user_id,
