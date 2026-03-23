@@ -123,32 +123,30 @@ export default function DepositPage() {
 
     setSubmitting(true);
     try {
-      const formData = new FormData();
       const ext = file.name?.split(".").pop()?.toLowerCase();
       const mimeMap: Record<string, string> = {
         png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
         webp: "image/webp", heic: "image/heic", heif: "image/heif",
       };
-      const correctMime = file.type || mimeMap[ext || ""] || "image/jpeg";
-      const fixedFile = new File([file], file.name || `photo.${ext || "jpg"}`, { type: correctMime });
-      formData.append("file", fixedFile);
+      const contentType = file.type || mimeMap[ext || ""] || "image/jpeg";
 
-      const { data: uploadData, error: uploadError } = await supabase.functions.invoke("upload-deposit-proof", {
-        body: formData,
-      });
+      // Upload directly to Supabase Storage using the user's session
+      const fileName = `${user.id}/${Date.now()}_${crypto.randomUUID()}.${ext || "jpg"}`;
+      const { data: storageData, error: storageError } = await supabase.storage
+        .from("deposit-proofs")
+        .upload(fileName, file, { contentType, upsert: false });
 
-      if (uploadError || !uploadData?.path) {
-        const errMsg = typeof uploadData?.error === "string" ? uploadData.error : uploadError?.message || "Upload failed";
+      if (storageError) {
         toast({
           title: "Upload failed",
-          description: errMsg,
+          description: storageError.message || "Could not upload the file. Please try again.",
           variant: "destructive",
         });
         setSubmitting(false);
         return;
       }
 
-      const filePath = uploadData.path as string;
+      const filePath = storageData.path;
 
       const { error: insertError } = await supabase.from("deposits").insert({
         user_id: user.id,
