@@ -136,11 +136,10 @@ export default function AdminDepositsPage() {
                               status: d.status,
                             })
                           }
-                          className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                          title="Delete deposit"
+                          className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/20 transition-colors"
                           data-testid={`button-delete-${d.id}`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3 h-3" /> Delete
                         </button>
                       </div>
                     </td>
