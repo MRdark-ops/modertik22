@@ -57,18 +57,63 @@ export default function AdminUsersPage() {
     },
   });
 
-  // Fetch referrals for the selected user via admin-only RPC function
+  // Fetch referrals for the selected user
+  // Tries the edge function first (gets emails); falls back to direct table queries
   const { data: referredUsers = [], isLoading: referralsLoading } = useQuery({
     queryKey: ["user-referrals", selectedUser?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("get_user_referrals", {
-        referrer_user_id: selectedUser!.id,
-      });
-      if (error) {
-        toast.error("فشل تحميل الإحالات: " + error.message);
+      // ── Attempt 1: edge function (returns emails too) ──────────────────
+      const { data: fnData, error: fnError } = await supabase.functions.invoke(
+        "get-user-referrals",
+        { body: { referrer_user_id: selectedUser!.id } }
+      );
+      if (!fnError && Array.isArray(fnData)) {
+        return fnData as ReferredUser[];
+      }
+
+      // ── Fallback: direct table queries (no email) ──────────────────────
+      const { data: referrals, error: refErr } = await supabase
+        .from("referrals")
+        .select("referred_id, created_at")
+        .eq("referrer_id", selectedUser!.id)
+        .eq("level", 1)
+        .order("created_at", { ascending: false });
+
+      if (refErr) {
+        toast.error("فشل تحميل الإحالات");
         return [];
       }
-      return (data as ReferredUser[]) || [];
+      if (!referrals || referrals.length === 0) return [];
+
+      const referredIds = referrals.map((r) => r.referred_id);
+
+      const [profilesRes, commissionsRes] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("user_id, full_name, created_at")
+          .in("user_id", referredIds),
+        supabase
+          .from("referral_commissions")
+          .select("referred_id")
+          .in("referred_id", referredIds)
+          .eq("level", 1)
+          .eq("status", "paid"),
+      ]);
+
+      const profileMap = new Map(
+        (profilesRes.data ?? []).map((p) => [p.user_id, p])
+      );
+      const verifiedSet = new Set(
+        (commissionsRes.data ?? []).map((c) => c.referred_id)
+      );
+
+      return referrals.map((r) => ({
+        user_id: r.referred_id,
+        full_name: profileMap.get(r.referred_id)?.full_name ?? "",
+        email: "",
+        joined_at: profileMap.get(r.referred_id)?.created_at ?? r.created_at,
+        is_verified: verifiedSet.has(r.referred_id),
+      })) as ReferredUser[];
     },
     enabled: !!selectedUser,
   });
@@ -104,6 +149,7 @@ export default function AdminUsersPage() {
 
   const verifiedCount = referredUsers.filter((r) => r.is_verified).length;
   const pendingCount = referredUsers.filter((r) => !r.is_verified).length;
+  const hasEmails = referredUsers.some((r) => r.email);
 
   return (
     <DashboardLayout isAdmin title="User Management">
@@ -258,7 +304,9 @@ export default function AdminUsersPage() {
                   <tr className="border-b border-border bg-secondary/30">
                     <th className="text-left py-2.5 px-4 text-muted-foreground font-medium">#</th>
                     <th className="text-left py-2.5 px-4 text-muted-foreground font-medium">الاسم</th>
-                    <th className="text-left py-2.5 px-4 text-muted-foreground font-medium">الإيميل</th>
+                    {hasEmails && (
+                      <th className="text-left py-2.5 px-4 text-muted-foreground font-medium">الإيميل</th>
+                    )}
                     <th className="text-left py-2.5 px-4 text-muted-foreground font-medium">تاريخ الانضمام</th>
                     <th className="text-left py-2.5 px-4 text-muted-foreground font-medium">الحالة</th>
                   </tr>
@@ -272,9 +320,11 @@ export default function AdminUsersPage() {
                     >
                       <td className="py-2.5 px-4 text-muted-foreground font-medium">#{i + 1}</td>
                       <td className="py-2.5 px-4 font-medium">{r.full_name || "—"}</td>
-                      <td className="py-2.5 px-4 text-muted-foreground font-mono text-xs">
-                        {r.email || "—"}
-                      </td>
+                      {hasEmails && (
+                        <td className="py-2.5 px-4 text-muted-foreground font-mono text-xs">
+                          {r.email || "—"}
+                        </td>
+                      )}
                       <td className="py-2.5 px-4 text-muted-foreground text-xs">
                         {new Date(r.joined_at).toLocaleDateString("ar-SA", {
                           year: "numeric",
