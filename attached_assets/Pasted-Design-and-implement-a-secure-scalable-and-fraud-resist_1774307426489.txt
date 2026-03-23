@@ -1,0 +1,122 @@
+Design and implement a secure, scalable, and fraud-resistant multi-level referral system for a web or mobile application. The system must ensure that referral rewards are only granted after strict validation steps and should support tiered indirect earnings.
+
+🔐 1. Referral Activation Logic (Strict Validation)
+
+A referral must NOT be considered valid immediately after signup.
+
+A referral is only activated when ALL the following conditions are met:
+
+The referred user completes a successful Deposit transaction.
+The user uploads a valid Payment Proof (image/document).
+An Admin manually reviews and approves the proof.
+
+👉 Only after admin approval:
+
+The referral becomes “Verified”
+Rewards are released to the referrer
+The referral chain becomes eligible for multi-level rewards
+
+💰 2. Direct Referral Reward
+
+For each successfully verified direct referral:
+→ The referrer earns: $2.50 USD
+
+🌐 3. Multi-Level Indirect Referral Earnings (Dynamic Tier System)
+
+Implement a tier-based earning system for indirect referrals (downline activity):
+
+When a referred user (Level 1) invites others:
+
+Downline Position	Reward to Original Referrer
+1st referral	$2.00 USD
+2nd referral	$1.50 USD
+3rd referral	$1.00 USD
+4th referral	$0.50 USD
+5th and beyond	$0.50 USD (fixed)
+
+📌 Notes:
+
+This applies ONLY after each downline user is fully verified (deposit + proof + admin approval)
+Rewards must be calculated dynamically based on order of referrals
+
+🧠 4. Core Business Rules
+
+No reward is granted without full verification
+Each referral must be unique (prevent duplicate/self-referrals)
+Anti-fraud measures must be implemented:
+IP/device tracking
+Duplicate account detection
+Suspicious behavior flags
+Maintain full audit logs for:
+Deposits
+Proof submissions
+Admin approvals
+Reward transactions
+
+🗄️ 5. Database Design (Suggested)
+
+Entities:
+
+Users
+id
+referrer_id
+status (pending, verified)
+created_at
+Referrals
+id
+user_id
+referred_user_id
+level
+status
+Transactions
+id
+user_id
+amount
+type (deposit, reward)
+status
+Proofs
+id
+user_id
+file_url
+status (pending, approved, rejected)
+reviewed_by
+
+⚙️ 6. Required Features
+
+Referral link generator per user
+Admin dashboard:
+View proofs
+Approve/reject submissions
+User dashboard:
+View earnings
+Track referrals (direct & indirect)
+Real-time reward calculation system
+Scalable backend (Node.js / Firebase / Laravel recommended)
+
+📊 7. Example Scenario
+
+User A refers User B → after verification → A earns $2.50
+
+User B refers:
+
+C → A earns $2.00
+D → A earns $1.50
+E → A earns $1.00
+F → A earns $0.50
+Any additional users → A earns $0.50 each
+
+🚀 8. System Goals
+
+High security
+Fraud prevention
+Transparent reward tracking
+Scalability for thousands of users
+Clean and maintainable architecture
+
+📌 Deliverables Expected:
+
+Backend API
+Database schema
+Admin panel
+Referral tracking logic
+Reward engine

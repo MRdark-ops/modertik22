@@ -5,6 +5,8 @@ const ALLOWED_ORIGINS = [
   "https://modertin.lovable.app",
   "https://id-preview--61efc4ae-bed6-4fa9-9299-7ce90d249e3f.lovable.app",
   "http://localhost:5173",
+  "http://localhost:5000",
+  "https://975f647a-d90d-472a-9cb2-7f4d7e0aa4b6-00-3w57mlcdfw9wo.riker.replit.dev",
 ];
 
 function getCorsHeaders(req: Request) {
