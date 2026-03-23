@@ -79,7 +79,7 @@ Deno.serve(async (req) => {
     // ── Parse & validate request ──────────────────────────────────────────────
     const { deposit_id, action, admin_note } = await req.json();
 
-    if (!deposit_id || !["approve", "reject"].includes(action)) {
+    if (!deposit_id || !["approve", "reject", "delete"].includes(action)) {
       return new Response(JSON.stringify({ error: "Invalid request" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -96,6 +96,43 @@ Deno.serve(async (req) => {
     if (depError || !deposit) {
       return new Response(JSON.stringify({ error: "Deposit not found" }), {
         status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── DELETE branch ─────────────────────────────────────────────────────────
+    if (action === "delete") {
+      // Delete the proof file from storage if it exists
+      if (deposit.proof_url) {
+        await supabaseAdmin.storage
+          .from("deposit-proofs")
+          .remove([deposit.proof_url]);
+      }
+
+      const { error: delError } = await supabaseAdmin
+        .from("deposits")
+        .delete()
+        .eq("id", deposit_id);
+
+      if (delError) {
+        return new Response(JSON.stringify({ error: "Failed to delete deposit" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      await supabaseAdmin.from("activity_logs").insert({
+        user_id: deposit.user_id,
+        action: "deposit_deleted",
+        details: {
+          deposit_id,
+          amount: deposit.amount,
+          previous_status: deposit.status,
+          deleted_by: user.id,
+        },
+      });
+
+      return new Response(JSON.stringify({ success: true, status: "deleted" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
