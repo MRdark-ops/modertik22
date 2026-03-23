@@ -23,8 +23,8 @@ const depositSchema = z.object({
   amount: z.number({ invalid_type_error: "Please enter a valid amount" }).min(10, "Minimum deposit is $10").max(100000, "Maximum deposit is $100,000"),
 });
 
-const ALLOWED_FILE_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const ALLOWED_FILE_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/heic", "image/heif"];
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB to support high-res mobile photos
 
 export default function DepositPage() {
   const [amount, setAmount] = useState(() => {
@@ -80,15 +80,17 @@ export default function DepositPage() {
       
       const normalizedType = selected.type === "image/jpg" ? "image/jpeg" : selected.type;
       const ext = selected.name?.split(".").pop()?.toLowerCase();
-      const validExtensions = ["png", "jpg", "jpeg", "webp"];
-      const typeValid = ALLOWED_FILE_TYPES.includes(normalizedType) || (!selected.type && validExtensions.includes(ext || ""));
+      const validExtensions = ["png", "jpg", "jpeg", "webp", "heic", "heif"];
+      // Accept any image/* type (covers HEIC from iPhone, etc.) or known extension with no MIME
+      const isImageType = normalizedType.startsWith("image/");
+      const typeValid = isImageType || ALLOWED_FILE_TYPES.includes(normalizedType) || (!selected.type && validExtensions.includes(ext || ""));
       
       if (!typeValid) {
-        setErrors(prev => ({ ...prev, file: "Only PNG, JPEG, and WebP images are allowed" }));
+        setErrors(prev => ({ ...prev, file: "Only image files are allowed (PNG, JPEG, WebP, HEIC)" }));
         return;
       }
       if (selected.size > MAX_FILE_SIZE) {
-        setErrors(prev => ({ ...prev, file: "File must be under 5MB" }));
+        setErrors(prev => ({ ...prev, file: "File must be under 10MB" }));
         return;
       }
       
@@ -123,7 +125,10 @@ export default function DepositPage() {
     try {
       const formData = new FormData();
       const ext = file.name?.split(".").pop()?.toLowerCase();
-      const mimeMap: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+      const mimeMap: Record<string, string> = {
+        png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+        webp: "image/webp", heic: "image/heic", heif: "image/heif",
+      };
       const correctMime = file.type || mimeMap[ext || ""] || "image/jpeg";
       const fixedFile = new File([file], file.name || `photo.${ext || "jpg"}`, { type: correctMime });
       formData.append("file", fixedFile);
@@ -227,7 +232,7 @@ export default function DepositPage() {
                       <input 
                         type="file" 
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
-                        accept="image/png,image/jpeg,image/webp,image/jpg" 
+                        accept="image/*" 
                         onChange={handleFileChange} 
                         disabled={submitting} 
                       />
