@@ -1,0 +1,89 @@
+أريد إنشاء نظام عمولات متدرج احترافي (VIP Referral System) داخل منصة تداول، بنفس أسلوب العرض البصري والهيكل التالي:
+
+🎯 أولاً: واجهة المستخدم (UI Design)
+- تصميم عصري بخلفية داكنة (Dark Theme)
+- استخدام ألوان:
+  - أزرق + ذهبي + أخضر (للأرباح)
+- إضافة عناصر:
+  - أيقونات (أشخاص – مخططات – أرباح – عالم)
+  - تأثيرات Glow و Neon
+  - عرض المستويات في بطاقات (Cards)
+- كل مستوى يظهر في Box منفصل يحتوي:
+  - اسم المستوى (Level 1 → Level 5)
+  - عدد الأشخاص المطلوب
+  - نسبة العمولة
+  - الربح لكل شخص
+  - إجمالي الأرباح
+
+💰 ثانياً: نظام العمولات (Commission Logic)
+
+🔹 Level 1:
+- Required Referrals: 10 Users
+- Commission: 10% + 11%
+- Profit per user: $2.5
+- Total: $25
+
+🔹 Level 2:
+- Required Referrals: 100 Users
+- Commission: 8% + 8%
+- Profit per user: $2
+- Total: $200
+
+🔹 Level 3:
+- Required Referrals: 1,000 Users
+- Commission: 6%
+- Profit per user: $1.5
+- Total: $1,500
+
+🔹 Level 4:
+- Required Referrals: 10,000 Users
+- Commission: 4%
+- Profit per user: $1
+- Total: $10,000
+
+🔹 Level 5:
+- Required Referrals: 100,000 Users
+- Commission: 2%
+- Profit per user: $0.5
+- Total: $50,000
+
+💎 إجمالي الأرباح المحتملة:
+= $61,725
+
+⚙️ ثالثاً: شروط تفعيل العمولة (IMPORTANT LOGIC)
+- لا يتم احتساب الإحالة مباشرة
+- يجب على المستخدم المحال:
+  1. التسجيل عبر رابط الإحالة
+  2. القيام بعملية Deposit
+  3. رفع إثبات الدفع (Proof Upload)
+- يتم إرسال الطلب إلى Admin Dashboard
+- يقوم الأدمن:
+  - Accept / Reject
+- فقط عند Accept:
+  - يتم تفعيل الإحالة
+  - يتم إضافة العمولة
+
+🔐 رابعاً: نظام التتبع (Tracking System)
+- لكل مستخدم:
+  - Referral ID
+  - Referral Link
+- تتبع:
+  - عدد الإحالات لكل مستوى
+  - الأرباح لكل مستوى
+  - إجمالي الأرباح
+- Dashboard يحتوي:
+  - Earnings
+  - Levels Progress Bar
+  - Active / Pending Referrals
+
+📊 خامساً: مميزات إضافية
+- Progress Bar لكل مستوى
+- نظام إشعارات:
+  - عند قبول الإحالة
+  - عند كسب عمولة
+- Anti-Fraud System:
+  - منع الحسابات الوهمية
+  - منع التكرار (Duplicate Accounts)
+
+🚀 الهدف:
+إنشاء نظام احترافي يشجع المستخدمين على بناء فريق (Network) وتحقيق أرباح تصاعدية بطريقة واضحة وجذابة بصرياً.
