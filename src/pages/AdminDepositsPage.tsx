@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Trash2, Loader2 } from "lucide-react";
+import { Trash2, Loader2, AlertTriangle } from "lucide-react";
 
 // Commission per level: index = level number (1-based)
 // Level 1 = direct referrer, Level 2-5 = indirect chain
@@ -23,6 +23,7 @@ export default function AdminDepositsPage() {
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [proofOpen, setProofOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; amount: number; status: string } | null>(null);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
 
   const handleViewProof = async (path: string) => {
@@ -210,7 +211,7 @@ export default function AdminDepositsPage() {
     }
   };
 
-  // ── Delete ───────────────────────────────────────────────────────────────
+  // ── Delete single ─────────────────────────────────────────────────────────
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setLoading(deleteTarget.id + "-delete");
@@ -227,11 +228,60 @@ export default function AdminDepositsPage() {
     }
   };
 
+  // ── Delete ALL deposits ────────────────────────────────────────────────────
+  const handleDeleteAll = async () => {
+    setLoading("delete-all");
+    try {
+      // Fetch all deposit IDs first (Supabase requires a filter to delete all rows via RLS)
+      const { data: allDeposits, error: fetchErr } = await supabase
+        .from("deposits").select("id");
+      if (fetchErr) throw new Error(fetchErr.message);
+      if (!allDeposits || allDeposits.length === 0) {
+        toast.info("No deposits to delete");
+        setDeleteAllOpen(false);
+        return;
+      }
+
+      const ids = allDeposits.map((d) => d.id);
+      const { error } = await supabase.from("deposits").delete().in("id", ids);
+      if (error) throw new Error(error.message);
+
+      toast.success(`${ids.length} deposit(s) deleted successfully`);
+      setDeleteAllOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
+    } catch (err: any) {
+      toast.error(`Failed to delete all: ${err.message}`);
+    } finally {
+      setLoading(null);
+    }
+  };
+
   const isLoading = (id: string, action: string) => loading === `${id}-${action}`;
 
   return (
     <DashboardLayout isAdmin title="Deposit Management">
       <div className="space-y-6 animate-fade-in">
+
+        {/* ── Header bar with Delete All button ── */}
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            {deposits?.length ?? 0} total deposit{deposits?.length !== 1 ? "s" : ""}
+          </p>
+          {deposits && deposits.length > 0 && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setDeleteAllOpen(true)}
+              disabled={!!loading}
+              className="flex items-center gap-1.5 text-xs"
+              data-testid="button-delete-all-deposits"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete All ({deposits.length})
+            </Button>
+          )}
+        </div>
+
         <div className="glass-card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -309,7 +359,7 @@ export default function AdminDepositsPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Delete Confirmation Dialog */}
+        {/* Delete Single Confirmation Dialog */}
         <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
@@ -340,6 +390,55 @@ export default function AdminDepositsPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Delete ALL Confirmation Dialog */}
+        <Dialog open={deleteAllOpen} onOpenChange={(open) => { if (!open) setDeleteAllOpen(false); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-destructive flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" /> Delete All Deposits
+              </DialogTitle>
+              <DialogDescription className="pt-3 space-y-2">
+                <span className="block font-semibold text-foreground text-sm">
+                  This will permanently delete ALL {deposits?.length ?? 0} deposit record(s).
+                </span>
+                <span className="block text-sm">
+                  Deposits will be removed from <span className="text-foreground font-medium">both the admin panel and all user accounts</span>.
+                </span>
+                {deposits?.some((d: any) => d.status === "approved") && (
+                  <span className="block text-yellow-500 text-xs bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-2 mt-1">
+                    ⚠️ Some deposits are already approved — deleting them will NOT reverse user balances.
+                  </span>
+                )}
+                <span className="block text-destructive text-xs font-medium mt-1">
+                  This action cannot be undone.
+                </span>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 mt-2">
+              <Button
+                variant="outline"
+                onClick={() => setDeleteAllOpen(false)}
+                disabled={loading === "delete-all"}
+                data-testid="button-cancel-delete-all"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteAll}
+                disabled={loading === "delete-all"}
+                data-testid="button-confirm-delete-all"
+              >
+                {loading === "delete-all"
+                  ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Deleting...</>
+                  : <><Trash2 className="w-3 h-3 mr-1" /> Delete All</>
+                }
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
       </div>
     </DashboardLayout>
   );
