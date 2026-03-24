@@ -52,57 +52,70 @@ export default function AdminDepositsPage() {
   // ── Approve ──────────────────────────────────────────────────────────────
   const handleApprove = async (depositId: string) => {
     setLoading(depositId + "-approve");
+    const commissionWarnings: string[] = [];
+
     try {
-      // 1. Fetch deposit
+      // ── Step 1: Fetch and validate deposit ─────────────────────────────
       const { data: dep, error: depErr } = await supabase
         .from("deposits").select("*").eq("id", depositId).single();
       if (depErr || !dep) throw new Error(depErr?.message ?? "Deposit not found");
       if (dep.status !== "pending") throw new Error("Deposit already processed");
 
-      // 2. Update deposit status
-      const { error: updateErr } = await supabase
-        .from("deposits").update({ status: "approved" }).eq("id", depositId);
-      if (updateErr) throw new Error(updateErr.message);
-
-      // 3. Credit user balance
+      // ── Step 2: Read depositor profile FIRST (before marking approved) ─
       const { data: profile, error: profErr } = await supabase
         .from("profiles").select("balance, referred_by").eq("user_id", dep.user_id).single();
-      if (profErr) throw new Error(profErr.message);
+      if (profErr) throw new Error(`Failed to read user profile: ${profErr.message}`);
 
+      // ── Step 3: Mark deposit approved ──────────────────────────────────
+      const { error: updateErr } = await supabase
+        .from("deposits").update({ status: "approved" }).eq("id", depositId);
+      if (updateErr) throw new Error(`Failed to update deposit status: ${updateErr.message}`);
+
+      // ── Step 4: Credit depositor's balance ─────────────────────────────
+      const newDepositorBalance = parseFloat(profile.balance ?? "0") + parseFloat(dep.amount);
       const { error: balErr } = await supabase
         .from("profiles")
-        .update({ balance: parseFloat(profile.balance ?? "0") + parseFloat(dep.amount) })
+        .update({ balance: newDepositorBalance })
         .eq("user_id", dep.user_id);
-      if (balErr) throw new Error(`Balance update failed: ${balErr.message}`);
+      if (balErr) throw new Error(`Balance update failed: ${balErr.message}. Deposit is marked approved — manually credit balance of $${dep.amount} to user.`);
 
-      // 4. Multi-level referral commissions (up to 5 levels)
-      // Walk up the referred_by chain from the depositing user
+      // ── Step 5: Multi-level referral commissions ────────────────────────
       if (profile.referred_by) {
-        // Check if any commission for this user's deposit was already granted
-        const { count: alreadyPaid } = await supabase
+        // Guard: skip if commissions already paid for this referred user
+        const { count: alreadyPaid, error: checkErr } = await supabase
           .from("referral_commissions")
           .select("*", { count: "exact", head: true })
           .eq("referred_id", dep.user_id)
           .eq("status", "paid");
 
-        if (!alreadyPaid || alreadyPaid === 0) {
-          // Build the ancestor chain: traverse referred_by up to 5 levels
+        if (checkErr) {
+          commissionWarnings.push(`Could not verify existing commissions: ${checkErr.message}`);
+        } else if (!alreadyPaid || alreadyPaid === 0) {
+          // Build ancestor chain: walk referred_by up to 5 levels
           type Ancestor = { userId: string; level: number };
           const ancestors: Ancestor[] = [];
           let currentUserId: string | null = dep.user_id;
 
           for (let lvl = 1; lvl <= 5; lvl++) {
-            const { data: p } = await supabase
+            const { data: p, error: chainErr } = await supabase
               .from("profiles")
               .select("referred_by")
               .eq("user_id", currentUserId!)
               .single();
-            if (!p?.referred_by) break;
+
+            if (chainErr) {
+              commissionWarnings.push(`Chain traversal stopped at level ${lvl}: ${chainErr.message}`);
+              break;
+            }
+            if (!p?.referred_by) break; // end of chain
+
             ancestors.push({ userId: p.referred_by, level: lvl });
             currentUserId = p.referred_by;
           }
 
-          // Grant commission to each ancestor and credit their balance
+          console.info(`[Commission] Found ${ancestors.length} ancestor(s) for deposit ${depositId}`, ancestors);
+
+          // Grant commission to each ancestor
           for (const ancestor of ancestors) {
             const commissionAmt = COMMISSION_PER_LEVEL[ancestor.level] ?? 0;
             if (commissionAmt <= 0) continue;
@@ -118,21 +131,55 @@ export default function AdminDepositsPage() {
               status: "paid",
             });
 
-            if (!comErr) {
-              // Credit ancestor's balance
-              const { data: ancProfile } = await supabase
-                .from("profiles").select("balance").eq("user_id", ancestor.userId).single();
-              if (ancProfile) {
-                await supabase.from("profiles")
-                  .update({ balance: parseFloat(ancProfile.balance ?? "0") + commissionAmt })
-                  .eq("user_id", ancestor.userId);
-              }
+            if (comErr) {
+              const msg = `L${ancestor.level} commission insert failed: ${comErr.message}`;
+              console.error(`[Commission] ${msg}`);
+              commissionWarnings.push(msg);
+              continue; // don't credit balance if commission record failed
+            }
+
+            // Credit ancestor balance
+            const { data: ancProfile, error: ancReadErr } = await supabase
+              .from("profiles").select("balance").eq("user_id", ancestor.userId).single();
+
+            if (ancReadErr || !ancProfile) {
+              const msg = `L${ancestor.level} ancestor profile not found: ${ancReadErr?.message ?? "no data"}`;
+              console.error(`[Commission] ${msg}`);
+              commissionWarnings.push(msg);
+              continue;
+            }
+
+            const newAncBalance = parseFloat(ancProfile.balance ?? "0") + commissionAmt;
+            const { error: ancBalErr } = await supabase
+              .from("profiles")
+              .update({ balance: newAncBalance })
+              .eq("user_id", ancestor.userId);
+
+            if (ancBalErr) {
+              const msg = `L${ancestor.level} balance credit failed ($${commissionAmt}): ${ancBalErr.message}`;
+              console.error(`[Commission] ${msg}`);
+              commissionWarnings.push(msg);
+            } else {
+              console.info(`[Commission] L${ancestor.level} ancestor ${ancestor.userId} credited $${commissionAmt}`);
             }
           }
+        } else {
+          console.info(`[Commission] Skipped — commissions already paid for user ${dep.user_id}`);
         }
       }
 
-      toast.success("Deposit approved and balance credited");
+      // ── Show result ─────────────────────────────────────────────────────
+      if (commissionWarnings.length === 0) {
+        toast.success("Deposit approved — balance and commissions credited");
+      } else {
+        toast.success("Deposit approved — balance credited");
+        toast.warning(
+          `${commissionWarnings.length} commission issue(s) — check browser console for details. Run required SQL policies if not done.`,
+          { duration: 8000 }
+        );
+        console.warn("[Commission] Issues during approval:", commissionWarnings);
+      }
+
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
       toast.error(`Failed to approve: ${err.message}`);
