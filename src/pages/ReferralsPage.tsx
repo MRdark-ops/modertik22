@@ -107,27 +107,21 @@ export default function ReferralsPage() {
     ? `${window.location.origin}/register?ref=${profile.referral_code}`
     : "";
 
-  // Count referrals at each depth level
-  const { data: levelCounts = {} } = useQuery({
-    queryKey: ["referral-level-counts", user?.id],
+  // ── Level 1: count all direct signups from profiles.referred_by ─────────────
+  // (More reliable than referrals table which only stores level-1 anyway due to schema UNIQUE constraint)
+  const { data: directCount = 0 } = useQuery({
+    queryKey: ["direct-referral-count", user?.id],
     queryFn: async () => {
-      const counts: Record<number, number> = {};
-      await Promise.all(
-        [1, 2, 3, 4, 5].map(async (lvl) => {
-          const { count } = await supabase
-            .from("referrals")
-            .select("*", { count: "exact", head: true })
-            .eq("referrer_id", user!.id)
-            .eq("level", lvl);
-          counts[lvl] = count ?? 0;
-        })
-      );
-      return counts;
+      const { count } = await supabase
+        .from("profiles")
+        .select("*", { count: "exact", head: true })
+        .eq("referred_by", user!.id);
+      return count ?? 0;
     },
     enabled: !!user,
   });
 
-  // Verified commissions at each level
+  // ── Commissions by level (paid) — source of truth for all levels ─────────────
   const { data: commissionsByLevel = {} } = useQuery({
     queryKey: ["commissions-by-level", user?.id],
     queryFn: async () => {
@@ -147,22 +141,21 @@ export default function ReferralsPage() {
     enabled: !!user,
   });
 
-  // Direct referrals list (level 1 only, for the bottom section)
+  // ── Direct referrals list with names (from profiles, not broken referrals table) ─
   const { data: directReferrals = [] } = useQuery({
     queryKey: ["direct-referrals", user?.id],
     queryFn: async () => {
       const { data } = await supabase
-        .from("referrals")
-        .select("referred_id, created_at")
-        .eq("referrer_id", user!.id)
-        .eq("level", 1)
+        .from("profiles")
+        .select("user_id, full_name, created_at")
+        .eq("referred_by", user!.id)
         .order("created_at", { ascending: false });
       return data || [];
     },
     enabled: !!user,
   });
 
-  // Verified direct IDs (level-1 paid commissions)
+  // ── Verified direct IDs from paid commissions ─────────────────────────────────
   const { data: verifiedDirectIds = new Set<string>() } = useQuery({
     queryKey: ["verified-direct-ids", user?.id],
     queryFn: async () => {
@@ -177,11 +170,18 @@ export default function ReferralsPage() {
     enabled: !!user,
   });
 
+  // ── Computed totals ────────────────────────────────────────────────────────────
   const totalEarnings = Object.values(commissionsByLevel).reduce(
     (s, v) => s + v.total, 0
   );
   const verifiedCount = commissionsByLevel[1]?.count ?? 0;
-  const pendingCount = (levelCounts[1] ?? 0) - verifiedCount;
+  const pendingCount = Math.max(0, directCount - verifiedCount);
+
+  // For level cards: L1 = total direct signups; L2-5 = paid commissions (can't count pending indirect)
+  const getLevelSignups = (lvl: number) => {
+    if (lvl === 1) return directCount;
+    return commissionsByLevel[lvl]?.count ?? 0;
+  };
 
   // Determine current VIP level achieved
   const currentVipLevel = VIP_LEVELS.reduce((max, lvl) => {
@@ -259,7 +259,7 @@ export default function ReferralsPage() {
         {/* ── Summary Stats ────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: "Total Referred", value: fmt(levelCounts[1] ?? 0), color: "text-blue-400", icon: <Users className="w-4 h-4" /> },
+            { label: "Total Referred", value: fmt(directCount), color: "text-blue-400", icon: <Users className="w-4 h-4" /> },
             { label: "Verified", value: fmt(verifiedCount), color: "text-emerald-400", icon: <CheckCircle2 className="w-4 h-4" /> },
             { label: "Pending", value: fmt(pendingCount < 0 ? 0 : pendingCount), color: "text-amber-400", icon: <Clock className="w-4 h-4" /> },
             { label: "Total Earned", value: `$${totalEarnings.toFixed(2)}`, color: "gold-gradient-text", icon: <DollarSign className="w-4 h-4" /> },
@@ -285,7 +285,7 @@ export default function ReferralsPage() {
             {VIP_LEVELS.map((lvl) => {
               const verified = commissionsByLevel[lvl.dbLevel]?.count ?? 0;
               const earned = commissionsByLevel[lvl.dbLevel]?.total ?? 0;
-              const signups = levelCounts[lvl.dbLevel] ?? 0;
+              const signups = getLevelSignups(lvl.dbLevel);
               const progress = Math.min(100, (verified / lvl.required) * 100);
               const isUnlocked = verified >= lvl.required;
 
@@ -440,19 +440,21 @@ export default function ReferralsPage() {
           ) : (
             <div className="space-y-1.5">
               {directReferrals.map((ref: any, i: number) => {
-                const isVerified = verifiedDirectIds.has(ref.referred_id);
+                const isVerified = verifiedDirectIds.has(ref.user_id);
                 return (
                   <div
-                    key={ref.referred_id}
+                    key={ref.user_id}
                     className="flex items-center justify-between py-2.5 px-3 rounded-lg border border-border/50 hover:bg-secondary/20 transition-colors"
-                    data-testid={`row-referral-${ref.referred_id}`}
+                    data-testid={`row-referral-${ref.user_id}`}
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
                         <span className="text-xs font-bold text-primary">#{i + 1}</span>
                       </div>
                       <div>
-                        <p className="text-sm font-medium">Referral #{i + 1}</p>
+                        <p className="text-sm font-medium">
+                          {ref.full_name || `Referral #${i + 1}`}
+                        </p>
                         <p className="text-xs text-muted-foreground">
                           Joined {new Date(ref.created_at).toLocaleDateString()}
                         </p>
