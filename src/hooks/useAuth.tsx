@@ -22,20 +22,16 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Three-state user: undefined = unknown, null = no session, User = logged in
-  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  // userLoading: true until we've done the initial getSession()
+  // userLoading stays true until initializeAuth finishes (including fetchUserData)
   const [userLoading, setUserLoading] = useState(true);
-  // roleLoading: true while fetching isAdmin / profile data
   const [roleLoading, setRoleLoading] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [profile, setProfile] = useState<AuthContextType["profile"]>(null);
 
-  const initializedRef = useRef(false);
   const fetchingRef = useRef(false);
   const lastFetchedUserIdRef = useRef<string | null>(null);
-  // Track a pending SIGNED_OUT timer so we can cancel it if SIGNED_IN follows
   const signedOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── fetchUserData: fetch role + profile for a given userId ────────────────
@@ -72,22 +68,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── attemptSessionRecovery: try to recover session after SIGNED_OUT ───────
-  // Called with a delay to allow Supabase auto-refresh to complete first.
   const attemptSessionRecovery = useCallback(async (isMounted: () => boolean) => {
-    // 1. Try getSession() — returns current session from storage
     const { data: { session: s1 } } = await supabase.auth.getSession();
     if (!isMounted()) return;
     if (s1?.user) {
       setSession(s1);
       setUser(s1.user);
-      // Re-fetch role only if user changed
       if (lastFetchedUserIdRef.current !== s1.user.id) {
         fetchUserData(s1.user.id);
       }
       return;
     }
 
-    // 2. Fallback: try refreshSession() — forces a network refresh attempt
     try {
       const { data: { session: s2 } } = await supabase.auth.refreshSession();
       if (!isMounted()) return;
@@ -100,11 +92,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
     } catch {
-      // refreshSession throws if no refresh token exists — treat as genuine logout
+      // no refresh token — genuine logout
     }
 
     if (!isMounted()) return;
-    // 3. Genuine logout — no session recoverable
     clearAuthState();
   }, [fetchUserData, clearAuthState]);
 
@@ -113,6 +104,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const isMounted = () => mounted;
 
     // ── Auth state listener ────────────────────────────────────────────────
+    // IMPORTANT: Does NOT handle INITIAL_SESSION — that's done by initializeAuth below.
+    // Handling INITIAL_SESSION here too would cause a redundant second fetchUserData
+    // call that can reset isAdmin=false and redirect admins to /dashboard.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
         if (!mounted) return;
@@ -123,9 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           signedOutTimerRef.current = null;
         }
 
+        // ── SIGNED_OUT: delayed recovery ──────────────────────────────────
         if (event === "SIGNED_OUT") {
-          // Delay before acting — gives Supabase time to auto-refresh the token.
-          // If TOKEN_REFRESHED fires within 1 s, the timer above cancels this.
           if (signedOutTimerRef.current) clearTimeout(signedOutTimerRef.current);
           signedOutTimerRef.current = setTimeout(() => {
             signedOutTimerRef.current = null;
@@ -135,16 +128,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (event === "TOKEN_REFRESHED" || event === "SIGNED_IN" || event === "INITIAL_SESSION") {
+        // ── SIGNED_IN / TOKEN_REFRESHED: user changed or token renewed ────
+        // Skip INITIAL_SESSION — handled by initializeAuth
+        if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
           setSession(newSession);
           setUser(newSession?.user ?? null);
 
           if (newSession?.user) {
             const uid = newSession.user.id;
-            // Only re-fetch role/profile if user actually changed
             if (lastFetchedUserIdRef.current !== uid) {
+              // Re-check inside the timeout to avoid redundant fetch if
+              // initializeAuth has already completed by then
               setTimeout(() => {
-                if (mounted) fetchUserData(uid);
+                if (mounted && lastFetchedUserIdRef.current !== uid) {
+                  fetchUserData(uid);
+                }
               }, 0);
             }
           } else {
@@ -152,22 +150,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        // USER_UPDATED: refresh profile data
+        // ── USER_UPDATED: force re-fetch of profile/role ──────────────────
         if (event === "USER_UPDATED" && newSession?.user) {
           setSession(newSession);
           setUser(newSession.user);
-          const uid = newSession.user.id;
+          // Force re-fetch by resetting the ref
+          lastFetchedUserIdRef.current = null;
           setTimeout(() => {
-            if (mounted) fetchUserData(uid);
+            if (mounted) fetchUserData(newSession.user!.id);
           }, 0);
         }
       }
     );
 
     // ── Initial session load ───────────────────────────────────────────────
+    // This is the ONLY place we handle INITIAL_SESSION.
+    // It awaits fetchUserData before setting userLoading=false, so ProtectedRoute
+    // never sees loading=false + isAdmin=false for a logged-in admin.
     const initializeAuth = async () => {
-      if (initializedRef.current) return;
-      initializedRef.current = true;
       try {
         const { data: { session: initialSession } } = await supabase.auth.getSession();
         if (!mounted) return;
@@ -178,6 +178,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (initialSession?.user) {
           await fetchUserData(initialSession.user.id);
         }
+      } catch {
+        // getSession failed — user stays as null
       } finally {
         if (mounted) setUserLoading(false);
       }
@@ -196,14 +198,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   };
 
-  // loading = true until we know the user AND their role
   const loading = userLoading || roleLoading;
-  // Treat undefined user (still loading) same as logged-in for the purpose of the context value
-  const resolvedUser = user === undefined ? null : user;
 
   return (
     <AuthContext.Provider value={{
-      user: resolvedUser,
+      user,
       session,
       loading,
       isAdmin,
