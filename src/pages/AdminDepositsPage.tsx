@@ -8,8 +8,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Button } from "@/components/ui/button";
 import { Trash2, Loader2 } from "lucide-react";
 
-const DIRECT_REWARD = 2.50;
-const INDIRECT_TIERS = [2.00, 1.50, 1.00, 0.50];
+// Commission per level: index = level number (1-based)
+// Level 1 = direct referrer, Level 2-5 = indirect chain
+const COMMISSION_PER_LEVEL: Record<number, number> = {
+  1: 2.50,
+  2: 2.00,
+  3: 1.50,
+  4: 1.00,
+  5: 0.50,
+};
 
 export default function AdminDepositsPage() {
   const queryClient = useQueryClient();
@@ -68,68 +75,57 @@ export default function AdminDepositsPage() {
         .eq("user_id", dep.user_id);
       if (balErr) throw new Error(`Balance update failed: ${balErr.message}`);
 
-      // 4. Referral commissions
+      // 4. Multi-level referral commissions (up to 5 levels)
+      // Walk up the referred_by chain from the depositing user
       if (profile.referred_by) {
-        const directReferrerId = profile.referred_by;
-
-        // Check if commission already granted for this user
-        const { count: existing } = await supabase
+        // Check if any commission for this user's deposit was already granted
+        const { count: alreadyPaid } = await supabase
           .from("referral_commissions")
           .select("*", { count: "exact", head: true })
           .eq("referred_id", dep.user_id)
-          .eq("level", 1)
           .eq("status", "paid");
 
-        if (!existing || existing === 0) {
-          // Grant direct $2.50 commission
-          await supabase.from("referral_commissions").insert({
-            referrer_id: directReferrerId,
-            referred_id: dep.user_id,
-            deposit_id: depositId,
-            level: 1,
-            rate: 0,
-            commission_amount: DIRECT_REWARD,
-            status: "paid",
-          });
+        if (!alreadyPaid || alreadyPaid === 0) {
+          // Build the ancestor chain: traverse referred_by up to 5 levels
+          type Ancestor = { userId: string; level: number };
+          const ancestors: Ancestor[] = [];
+          let currentUserId: string | null = dep.user_id;
 
-          // Credit direct referrer
-          const { data: refProfile } = await supabase
-            .from("profiles").select("balance, referred_by").eq("user_id", directReferrerId).single();
-          if (refProfile) {
-            await supabase.from("profiles")
-              .update({ balance: parseFloat(refProfile.balance ?? "0") + DIRECT_REWARD })
-              .eq("user_id", directReferrerId);
+          for (let lvl = 1; lvl <= 5; lvl++) {
+            const { data: p } = await supabase
+              .from("profiles")
+              .select("referred_by")
+              .eq("user_id", currentUserId!)
+              .single();
+            if (!p?.referred_by) break;
+            ancestors.push({ userId: p.referred_by, level: lvl });
+            currentUserId = p.referred_by;
+          }
 
-            // Level 2 indirect commission
-            if (refProfile.referred_by) {
-              const grandReferrerId = refProfile.referred_by;
-              const { count: priorCount } = await supabase
-                .from("referral_commissions")
-                .select("*", { count: "exact", head: true })
-                .eq("referrer_id", directReferrerId)
-                .eq("level", 1)
-                .eq("status", "paid")
-                .neq("referred_id", dep.user_id);
+          // Grant commission to each ancestor and credit their balance
+          for (const ancestor of ancestors) {
+            const commissionAmt = COMMISSION_PER_LEVEL[ancestor.level] ?? 0;
+            if (commissionAmt <= 0) continue;
 
-              const pos = priorCount ?? 0;
-              const indirectAmt = pos < INDIRECT_TIERS.length ? INDIRECT_TIERS[pos] : 0.50;
+            // Insert commission record
+            const { error: comErr } = await supabase.from("referral_commissions").insert({
+              referrer_id: ancestor.userId,
+              referred_id: dep.user_id,
+              deposit_id: depositId,
+              level: ancestor.level,
+              rate: 0,
+              commission_amount: commissionAmt,
+              status: "paid",
+            });
 
-              await supabase.from("referral_commissions").insert({
-                referrer_id: grandReferrerId,
-                referred_id: dep.user_id,
-                deposit_id: depositId,
-                level: 2,
-                rate: 0,
-                commission_amount: indirectAmt,
-                status: "paid",
-              });
-
-              const { data: grandProfile } = await supabase
-                .from("profiles").select("balance").eq("user_id", grandReferrerId).single();
-              if (grandProfile) {
+            if (!comErr) {
+              // Credit ancestor's balance
+              const { data: ancProfile } = await supabase
+                .from("profiles").select("balance").eq("user_id", ancestor.userId).single();
+              if (ancProfile) {
                 await supabase.from("profiles")
-                  .update({ balance: parseFloat(grandProfile.balance ?? "0") + indirectAmt })
-                  .eq("user_id", grandReferrerId);
+                  .update({ balance: parseFloat(ancProfile.balance ?? "0") + commissionAmt })
+                  .eq("user_id", ancestor.userId);
               }
             }
           }
