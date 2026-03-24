@@ -53,12 +53,17 @@ export default function AdminDepositsPage() {
   });
 
   const handleAction = async (depositId: string, action: "approve" | "reject") => {
-    const { error } = await supabase.functions.invoke("approve-deposit", {
+    const { data, error } = await supabase.functions.invoke("approve-deposit", {
       body: { deposit_id: depositId, action, admin_note: "" },
     });
-    if (error) toast.error("Failed to process deposit");
-    else {
-      toast.success(`Deposit ${action}d`);
+    if (error) {
+      const msg = error?.message || "Unknown error";
+      toast.error(`Failed to ${action} deposit: ${msg}`);
+      console.error("approve-deposit error:", error, data);
+    } else if (data?.error) {
+      toast.error(`Error: ${data.error}`);
+    } else {
+      toast.success(`Deposit ${action === "approve" ? "approved" : "rejected"} successfully`);
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     }
   };
@@ -66,12 +71,16 @@ export default function AdminDepositsPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
-    const { error } = await supabase.functions.invoke("approve-deposit", {
+    const { data, error } = await supabase.functions.invoke("approve-deposit", {
       body: { deposit_id: deleteTarget.id, action: "delete" },
     });
     setDeleting(false);
     if (error) {
-      toast.error("Failed to delete deposit");
+      const msg = error?.message || "Unknown error";
+      toast.error(`Failed to delete deposit: ${msg}`);
+      console.error("delete-deposit error:", error, data);
+    } else if (data?.error) {
+      toast.error(`Error: ${data.error}`);
     } else {
       toast.success("Deposit deleted successfully");
       setDeleteTarget(null);

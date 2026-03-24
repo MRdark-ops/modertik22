@@ -34,12 +34,17 @@ export default function AdminWithdrawalsPage() {
   });
 
   const handleAction = async (withdrawalId: string, action: "approve" | "reject" | "in_progress" | "completed") => {
-    const { error } = await supabase.functions.invoke("approve-withdrawal", {
+    const { data, error } = await supabase.functions.invoke("approve-withdrawal", {
       body: { withdrawal_id: withdrawalId, action, admin_note: "" },
     });
-    if (error) toast.error("فشلت العملية");
-    else {
-      toast.success(`تم تحديث الحالة بنجاح`);
+    if (error) {
+      const msg = error?.message || "Unknown error";
+      toast.error(`Failed to update withdrawal: ${msg}`);
+      console.error("approve-withdrawal error:", error, data);
+    } else if (data?.error) {
+      toast.error(`Error: ${data.error}`);
+    } else {
+      toast.success("Withdrawal status updated successfully");
       queryClient.invalidateQueries({ queryKey: ["admin-withdrawals"] });
     }
   };
