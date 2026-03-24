@@ -34,15 +34,16 @@ export default function AdminWithdrawalsPage() {
   });
 
   const handleAction = async (withdrawalId: string, action: "approve" | "reject" | "in_progress" | "completed") => {
-    const { data, error } = await supabase.functions.invoke("approve-withdrawal", {
-      body: { withdrawal_id: withdrawalId, action, admin_note: "" },
+    const { data, error } = await supabase.rpc("admin_process_withdrawal", {
+      p_withdrawal_id: withdrawalId,
+      p_action: action,
+      p_admin_note: "",
     });
     if (error) {
-      const msg = error?.message || "Unknown error";
-      toast.error(`Failed to update withdrawal: ${msg}`);
-      console.error("approve-withdrawal error:", error, data);
-    } else if (data?.error) {
-      toast.error(`Error: ${data.error}`);
+      toast.error(`Failed to update withdrawal: ${error.message}`);
+      console.error("admin_process_withdrawal error:", error);
+    } else if ((data as any)?.error) {
+      toast.error(`Error: ${(data as any).error}`);
     } else {
       toast.success("Withdrawal status updated successfully");
       queryClient.invalidateQueries({ queryKey: ["admin-withdrawals"] });

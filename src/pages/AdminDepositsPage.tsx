@@ -53,15 +53,16 @@ export default function AdminDepositsPage() {
   });
 
   const handleAction = async (depositId: string, action: "approve" | "reject") => {
-    const { data, error } = await supabase.functions.invoke("approve-deposit", {
-      body: { deposit_id: depositId, action, admin_note: "" },
+    const { data, error } = await supabase.rpc("admin_process_deposit", {
+      p_deposit_id: depositId,
+      p_action: action,
+      p_admin_note: "",
     });
     if (error) {
-      const msg = error?.message || "Unknown error";
-      toast.error(`Failed to ${action} deposit: ${msg}`);
-      console.error("approve-deposit error:", error, data);
-    } else if (data?.error) {
-      toast.error(`Error: ${data.error}`);
+      toast.error(`Failed to ${action} deposit: ${error.message}`);
+      console.error("admin_process_deposit error:", error);
+    } else if ((data as any)?.error) {
+      toast.error(`Error: ${(data as any).error}`);
     } else {
       toast.success(`Deposit ${action === "approve" ? "approved" : "rejected"} successfully`);
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
@@ -71,16 +72,17 @@ export default function AdminDepositsPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
-    const { data, error } = await supabase.functions.invoke("approve-deposit", {
-      body: { deposit_id: deleteTarget.id, action: "delete" },
+    const { data, error } = await supabase.rpc("admin_process_deposit", {
+      p_deposit_id: deleteTarget.id,
+      p_action: "delete",
+      p_admin_note: null,
     });
     setDeleting(false);
     if (error) {
-      const msg = error?.message || "Unknown error";
-      toast.error(`Failed to delete deposit: ${msg}`);
-      console.error("delete-deposit error:", error, data);
-    } else if (data?.error) {
-      toast.error(`Error: ${data.error}`);
+      toast.error(`Failed to delete deposit: ${error.message}`);
+      console.error("admin_process_deposit delete error:", error);
+    } else if ((data as any)?.error) {
+      toast.error(`Error: ${(data as any).error}`);
     } else {
       toast.success("Deposit deleted successfully");
       setDeleteTarget(null);
