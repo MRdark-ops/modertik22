@@ -1,0 +1,2 @@
+# Ignore Supabase Edge Functions (Deno-specific, not compatible with Vercel Node.js)
+supabase/functions/
