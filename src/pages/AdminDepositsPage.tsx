@@ -41,7 +41,7 @@ interface ApproveResult {
   depositId: string;
   userName: string;
   ok: boolean;
-  method: "rpc" | "direct";
+  method: "direct";
   error?: string;
   lines: CommissionLine[];
   skipped?: boolean;
@@ -163,52 +163,29 @@ export default function AdminDepositsPage() {
     return lines;
   };
 
-  // ── Approve: try RPC first, fall back to direct operations ──────────────
+  // ── Approve: Direct operations (no RPC needed) ──────────────────────────
   const handleApprove = async (depositId: string) => {
     setLoading(depositId + "-approve");
     const dep = (deposits as any[])?.find((d) => d.id === depositId);
     const userName = dep?.full_name ?? "User";
 
+    if (!dep) {
+      toast.error("Deposit not found");
+      setLoading(null);
+      return;
+    }
+
     try {
-      // ── Attempt 1: RPC (atomic, SECURITY DEFINER) ──────────────────────
-      const { data: rpcData, error: rpcErr } = await supabase.rpc("admin_approve_deposit", {
-        p_deposit_id: depositId,
-      });
-
-      if (!rpcErr) {
-        const res = rpcData as any;
-        if (!res?.ok) throw new Error(res?.error ?? "RPC returned not-ok");
-        const commJson = res.commission ?? {};
-        const rawLines: CommissionLine[] = Array.isArray(commJson.lines)
-          ? commJson.lines
-          : typeof commJson.lines === "string"
-          ? JSON.parse(commJson.lines)
-          : [];
-        setResult({
-          depositId, userName, ok: true, method: "rpc",
-          lines: rawLines,
-          skipped: !!commJson.skipped,
-          skipReason: commJson.reason,
-        });
-        queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
-        toast.success("Deposit approved — commissions processed via database function");
-        return;
-      }
-
-      // If RPC doesn't exist, fall through to direct approach
-      const isNotFound = rpcErr.code === "PGRST202" || rpcErr.message?.includes("does not exist");
-      if (!isNotFound) throw new Error(rpcErr.message);
-
-      // ── Attempt 2: Direct operations (needs 2 admin policies) ──────────
-      // Step 1: Approve deposit (admin update policy exists ✓)
+      // Step 1: Approve deposit
       const { error: depErr } = await supabase
         .from("deposits")
         .update({ status: "approved" })
         .eq("id", depositId)
         .eq("status", "pending");
+      
       if (depErr) throw new Error("Failed to approve deposit: " + depErr.message);
 
-      // Step 2: Credit depositor balance (needs admin update policy on profiles)
+      // Step 2: Credit depositor balance
       const currentBalance = dep?.balance ?? 0;
       const amount = dep?.amount ?? 0;
       const { error: balErr, data: balData } = await supabase
@@ -218,14 +195,14 @@ export default function AdminDepositsPage() {
         .select("balance")
         .maybeSingle();
 
-      // Detect silent RLS failure: no error but 0 rows updated (balance unchanged)
+      // Detect silent RLS failure: no error but 0 rows updated
       const balanceCredited = !balErr && balData !== null;
 
       if (balErr || !balanceCredited) {
         setSqlOpen(true);
         setResult({
           depositId, userName, ok: false, method: "direct",
-          error: `Deposit approved but balance credit failed (admin UPDATE policy missing on profiles). Run the 2-line SQL fix, then use "Retry Commission" on this deposit.`,
+          error: `Deposit approved but balance credit failed. Run the SQL fix, then use "Retry Commission" on this deposit.`,
           lines: [],
         });
         queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
@@ -247,6 +224,7 @@ export default function AdminDepositsPage() {
           .select("id", { count: "exact", head: true })
           .eq("deposit_id", depositId)
           .eq("status", "paid");
+        
         if ((count ?? 0) > 0) {
           skipped = true;
           skipReason = "Commissions already exist";
@@ -258,11 +236,22 @@ export default function AdminDepositsPage() {
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
 
       const hasErrors = lines.some((l) => !l.ok);
-      if (hasErrors) setSqlOpen(true);
+      const successCount = lines.filter((l) => l.ok).length;
 
       setResult({ depositId, userName, ok: true, method: "direct", lines, skipped, skipReason });
-      if (!hasErrors) toast.success("Deposit approved — commissions credited");
-      else toast.warning("Deposit approved — some commissions failed (run SQL setup)");
+      
+      if (skipped) {
+        toast.success(`Deposit approved — ${skipReason}`);
+      } else if (!hasErrors && lines.length > 0) {
+        toast.success(`Deposit approved — ${successCount} commission(s) credited`);
+      } else if (hasErrors && successCount > 0) {
+        toast.warning(`Deposit approved — ${successCount} of ${lines.length} commissions credited`);
+      } else if (lines.length === 0) {
+        toast.success("Deposit approved — no referrers in chain");
+      } else {
+        setSqlOpen(true);
+        toast.warning("Deposit approved — commission credit failed");
+      }
     } catch (err: any) {
       toast.error("Approval failed: " + err.message);
     } finally {
@@ -270,71 +259,91 @@ export default function AdminDepositsPage() {
     }
   };
 
-  // ── Retry commissions ────────────────────────────────────────────────────
+  // ── Retry commissions (Direct approach - no RPC needed) ────────────────────
   const handleRetryCommissions = async (depositId: string, userName: string) => {
     setLoading(depositId + "-retry");
     const dep = (deposits as any[])?.find((d) => d.id === depositId);
+    
+    if (!dep) {
+      toast.error("Deposit not found");
+      setLoading(null);
+      return;
+    }
+
     try {
-      // Try RPC first
-      const { data: rpcData, error: rpcErr } = await supabase.rpc("admin_run_commissions", {
-        p_deposit_id: depositId,
-      });
-
-      if (!rpcErr) {
-        const res = rpcData as any;
-        const rawLines: CommissionLine[] = Array.isArray(res.lines)
-          ? res.lines : typeof res.lines === "string" ? JSON.parse(res.lines) : [];
-        setResult({ depositId, userName, ok: !!res.ok, method: "rpc", lines: rawLines, skipped: !!res.skipped, skipReason: res.reason });
-        queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
-        if (res.skipped) toast.info("Skipped: " + res.reason);
-        else if (rawLines.every((l) => l.ok)) toast.success("Commissions credited");
-        else toast.warning("Some commissions failed");
+      // Check if commissions already exist for this deposit
+      const { count: existingCount } = await supabase
+        .from("referral_commissions")
+        .select("id", { count: "exact", head: true })
+        .eq("deposit_id", depositId)
+        .eq("status", "paid");
+      
+      if ((existingCount ?? 0) > 0) {
+        setResult({ 
+          depositId, 
+          userName, 
+          ok: true, 
+          method: "direct", 
+          lines: [], 
+          skipped: true, 
+          skipReason: "Commissions already exist for this deposit" 
+        });
+        toast.info("Commissions already exist for this deposit");
+        setLoading(null);
         return;
       }
 
-      const isNotFound = rpcErr.code === "PGRST202" || rpcErr.message?.includes("does not exist");
-      if (!isNotFound) throw new Error(rpcErr.message);
-
-      // Direct fallback — also fix depositor balance if it wasn't credited
-      // Step A: Try to credit depositor balance (silently skipped if already done)
-      const depAmount = dep?.amount ?? 0;
-      const { data: depProfile } = await supabase
-        .from("profiles")
-        .select("balance")
-        .eq("user_id", dep?.user_id)
-        .maybeSingle();
-
-      const currentDepBal = depProfile?.balance ?? 0;
-      const { data: balData } = await supabase
-        .from("profiles")
-        .update({ balance: currentDepBal + depAmount })
-        .eq("user_id", dep?.user_id)
-        .select("balance")
-        .maybeSingle();
-
-      if (!balData) {
-        // Silent RLS failure — can't credit balance
-        setSqlOpen(true);
-        setResult({ depositId, userName, ok: false, method: "direct", error: "Balance credit failed — run the 2-line SQL fix first, then retry.", lines: [] });
-        return;
-      }
-
-      // Step B: Commission chain
+      // Check if user has a referrer
       if (!dep?.referred_by) {
-        setResult({ depositId, userName, ok: true, method: "direct", lines: [], skipped: true, skipReason: "No referrer — balance has been credited" });
-        queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
-        toast.success("Depositor balance credited — no referrer for commissions");
+        setResult({ 
+          depositId, 
+          userName, 
+          ok: true, 
+          method: "direct", 
+          lines: [], 
+          skipped: true, 
+          skipReason: "User has no referrer" 
+        });
+        toast.info("User has no referrer — no commissions to pay");
+        setLoading(null);
         return;
       }
 
+      // Run commission chain directly
       const lines = await runCommissionChain(depositId, dep.user_id);
       const hasErrors = lines.some((l) => !l.ok);
-      setResult({ depositId, userName, ok: !hasErrors || lines.some((l) => l.ok), method: "direct", lines });
+      const successCount = lines.filter((l) => l.ok).length;
+      
+      setResult({ 
+        depositId, 
+        userName, 
+        ok: successCount > 0, 
+        method: "direct", 
+        lines 
+      });
+      
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
-      if (hasErrors) { setSqlOpen(true); toast.warning("Some commissions failed — run SQL setup"); }
-      else toast.success("Balance and commissions fixed successfully");
+      
+      if (lines.length === 0) {
+        toast.info("No referrers found in the chain");
+      } else if (!hasErrors) {
+        toast.success(`${successCount} commission(s) credited successfully`);
+      } else if (successCount > 0) {
+        toast.warning(`${successCount} of ${lines.length} commissions credited — some failed`);
+      } else {
+        setSqlOpen(true);
+        toast.error("Commission credit failed — check database permissions");
+      }
     } catch (err: any) {
       toast.error("Retry failed: " + err.message);
+      setResult({ 
+        depositId, 
+        userName, 
+        ok: false, 
+        method: "direct", 
+        error: err.message, 
+        lines: [] 
+      });
     } finally {
       setLoading(null);
     }
