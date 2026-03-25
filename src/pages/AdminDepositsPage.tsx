@@ -94,20 +94,12 @@ export default function AdminDepositsPage() {
     }
   };
 
-  // ── Retry commissions (re-approve via Edge Function) ──────────────────────
+  // ── Retry commissions via Edge Function ────────────────────────────────────
   const handleRetryCommissions = async (depositId: string) => {
     setLoading(depositId + "-retry");
     try {
-      // The edge function handles commission logic when approving
-      // For retry, we just need to trigger the commission calculation again
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        throw new Error("Not authenticated");
-      }
-
-      // Call the edge function - it will handle commissions if not already paid
       const response = await supabase.functions.invoke("approve-deposit", {
-        body: { deposit_id: depositId, action: "approve" },
+        body: { deposit_id: depositId, action: "retry_commissions" },
       });
 
       if (response.error) {
@@ -116,14 +108,15 @@ export default function AdminDepositsPage() {
 
       const result = response.data;
       if (result?.error) {
-        // If already processed, that's fine for retry
-        if (result.error.includes("already processed")) {
-          toast.info("Deposit already processed");
-        } else {
-          throw new Error(result.error);
-        }
+        throw new Error(result.error);
+      }
+
+      if (result?.commissions_paid > 0) {
+        toast.success(`${result.commissions_paid} commission(s) paid successfully`);
+      } else if (result?.message) {
+        toast.info(result.message);
       } else {
-        toast.success("Commissions processed successfully");
+        toast.success("Commissions processed");
       }
       
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });

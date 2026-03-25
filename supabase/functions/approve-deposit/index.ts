@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
     // ── Parse & validate request ──────────────────────────────────────────────
     const { deposit_id, action, admin_note } = await req.json();
 
-    if (!deposit_id || !["approve", "reject", "delete"].includes(action)) {
+    if (!deposit_id || !["approve", "reject", "delete", "retry_commissions"].includes(action)) {
       return new Response(JSON.stringify({ error: "Invalid request" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -120,6 +120,147 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true, status: "deleted" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ── RETRY COMMISSIONS branch ────────────────────────────────────────────
+    if (action === "retry_commissions") {
+      if (deposit.status !== "approved") {
+        return new Response(
+          JSON.stringify({ error: "Can only retry commissions for approved deposits" }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      // Get user profile to check for referrer
+      const { data: userProfile } = await supabaseAdmin
+        .from("profiles")
+        .select("referred_by")
+        .eq("user_id", deposit.user_id)
+        .single();
+
+      if (!userProfile?.referred_by) {
+        return new Response(
+          JSON.stringify({ success: true, message: "User has no referrer", commissions_paid: 0 }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Check if commissions already exist for this deposit
+      const { data: existingCommissions } = await supabaseAdmin
+        .from("referral_commissions")
+        .select("id")
+        .eq("deposit_id", deposit.id)
+        .eq("status", "paid");
+
+      if (existingCommissions && existingCommissions.length > 0) {
+        return new Response(
+          JSON.stringify({ success: true, message: "Commissions already paid", commissions_paid: existingCommissions.length }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Run commission logic (same as approve branch)
+      const directReferrerId = userProfile.referred_by;
+      let commissionsPaid = 0;
+
+      // Grant $2.50 direct referral commission
+      await supabaseAdmin.from("referral_commissions").insert({
+        referrer_id: directReferrerId,
+        referred_id: deposit.user_id,
+        deposit_id: deposit.id,
+        level: 1,
+        rate: 0,
+        commission_amount: DIRECT_REWARD,
+        status: "paid",
+      });
+
+      const { data: referrerProfile } = await supabaseAdmin
+        .from("profiles")
+        .select("balance, referred_by")
+        .eq("user_id", directReferrerId)
+        .single();
+
+      await supabaseAdmin
+        .from("profiles")
+        .update({
+          balance: parseFloat(referrerProfile?.balance || "0") + DIRECT_REWARD,
+        })
+        .eq("user_id", directReferrerId);
+
+      await supabaseAdmin.from("activity_logs").insert({
+        user_id: directReferrerId,
+        action: "referral_direct_reward_retry",
+        details: {
+          referred_user_id: deposit.user_id,
+          amount: DIRECT_REWARD,
+          deposit_id: deposit.id,
+        },
+      });
+      commissionsPaid++;
+
+      // Grant tiered indirect reward to grand-referrer (level 2)
+      if (referrerProfile?.referred_by) {
+        const grandReferrerId = referrerProfile.referred_by;
+
+        const { count: priorCount } = await supabaseAdmin
+          .from("referral_commissions")
+          .select("id", { count: "exact", head: true })
+          .eq("referrer_id", directReferrerId)
+          .eq("level", 1)
+          .eq("status", "paid")
+          .not("deposit_id", "is", null)
+          .neq("referred_id", deposit.user_id);
+
+        const position = priorCount ?? 0;
+        const indirectAmount =
+          position < INDIRECT_REWARD_TIERS.length
+            ? INDIRECT_REWARD_TIERS[position]
+            : INDIRECT_REWARD_DEFAULT;
+
+        await supabaseAdmin.from("referral_commissions").insert({
+          referrer_id: grandReferrerId,
+          referred_id: deposit.user_id,
+          deposit_id: deposit.id,
+          level: 2,
+          rate: 0,
+          commission_amount: indirectAmount,
+          status: "paid",
+        });
+
+        const { data: grandProfile } = await supabaseAdmin
+          .from("profiles")
+          .select("balance")
+          .eq("user_id", grandReferrerId)
+          .single();
+
+        await supabaseAdmin
+          .from("profiles")
+          .update({
+            balance: parseFloat(grandProfile?.balance || "0") + indirectAmount,
+          })
+          .eq("user_id", grandReferrerId);
+
+        await supabaseAdmin.from("activity_logs").insert({
+          user_id: grandReferrerId,
+          action: "referral_indirect_reward_retry",
+          details: {
+            indirect_via: directReferrerId,
+            referred_user_id: deposit.user_id,
+            amount: indirectAmount,
+            downline_position: position + 1,
+            deposit_id: deposit.id,
+          },
+        });
+        commissionsPaid++;
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, message: "Commissions paid successfully", commissions_paid: commissionsPaid }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     if (deposit.status !== "pending") {
