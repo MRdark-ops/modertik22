@@ -57,24 +57,26 @@ export default function AdminDepositsPage() {
     else toast.error("Failed to load proof image");
   };
 
-  // ── Call Edge Function for approve/reject/delete ──────────────────────────
-  const callEdgeFunction = async (depositId: string, action: "approve" | "reject" | "delete") => {
+  // ── Call API for approve/reject/delete/retry_commissions ──────────────────
+  const callAdminAPI = async (depositId: string, action: "approve" | "reject" | "delete" | "retry_commissions") => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) {
       throw new Error("Not authenticated");
     }
 
-    const response = await supabase.functions.invoke("approve-deposit", {
-      body: { deposit_id: depositId, action },
+    const response = await fetch("/api/admin/deposit", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ deposit_id: depositId, action }),
     });
 
-    if (response.error) {
-      throw new Error(response.error.message || "Edge function error");
-    }
+    const result = await response.json();
 
-    const result = response.data;
-    if (result?.error) {
-      throw new Error(result.error);
+    if (!response.ok) {
+      throw new Error(result?.error || "API error");
     }
 
     return result;
@@ -84,7 +86,7 @@ export default function AdminDepositsPage() {
   const handleApprove = async (depositId: string) => {
     setLoading(depositId + "-approve");
     try {
-      await callEdgeFunction(depositId, "approve");
+      await callAdminAPI(depositId, "approve");
       toast.success("Deposit approved successfully");
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
@@ -94,22 +96,11 @@ export default function AdminDepositsPage() {
     }
   };
 
-  // ── Retry commissions via Edge Function ────────────────────────────────────
+  // ── Retry commissions via API ───────────────────────────────────────────────
   const handleRetryCommissions = async (depositId: string) => {
     setLoading(depositId + "-retry");
     try {
-      const response = await supabase.functions.invoke("approve-deposit", {
-        body: { deposit_id: depositId, action: "retry_commissions" },
-      });
-
-      if (response.error) {
-        throw new Error(response.error.message || "Edge function error");
-      }
-
-      const result = response.data;
-      if (result?.error) {
-        throw new Error(result.error);
-      }
+      const result = await callAdminAPI(depositId, "retry_commissions");
 
       if (result?.commissions_paid > 0) {
         toast.success(`${result.commissions_paid} commission(s) paid successfully`);
@@ -131,7 +122,7 @@ export default function AdminDepositsPage() {
   const handleReject = async (depositId: string) => {
     setLoading(depositId + "-reject");
     try {
-      await callEdgeFunction(depositId, "reject");
+      await callAdminAPI(depositId, "reject");
       toast.success("Deposit rejected");
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
@@ -146,7 +137,7 @@ export default function AdminDepositsPage() {
     if (!deleteTarget) return;
     setLoading(deleteTarget.id + "-delete");
     try {
-      await callEdgeFunction(deleteTarget.id, "delete");
+      await callAdminAPI(deleteTarget.id, "delete");
       toast.success("Deposit deleted");
       setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
@@ -167,11 +158,11 @@ export default function AdminDepositsPage() {
         return; 
       }
       
-      // Delete all deposits one by one using edge function
+      // Delete all deposits one by one using API
       let deleted = 0;
       for (const dep of all) {
         try {
-          await callEdgeFunction(dep.id, "delete");
+          await callAdminAPI(dep.id, "delete");
           deleted++;
         } catch {
           // Continue with others
