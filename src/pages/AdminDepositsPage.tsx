@@ -57,29 +57,20 @@ export default function AdminDepositsPage() {
     else toast.error("Failed to load proof image");
   };
 
-  // ── Call API for approve/reject/delete/retry_commissions ──────────────────
+  // ── تم إصلاح هذه الدالة ──────────────────────────────────────────────────
   const callAdminAPI = async (depositId: string, action: "approve" | "reject" | "delete" | "retry_commissions") => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-      throw new Error("Not authenticated");
-    }
-
-    const response = await fetch("/api/admin/deposit", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ deposit_id: depositId, action }),
+    // استخدام supabase.functions.invoke للاتصال المباشر بالـ Edge Function
+    // هذا يحل مشكلة "Failed to send request" ويتكفل تلقائياً ب اﻷuthorization
+    const { data, error } = await supabase.functions.invoke("admin-deposit", {
+      body: { deposit_id: depositId, action },
     });
 
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result?.error || "API error");
+    if (error) {
+      console.error("Edge Function Error:", error);
+      throw new Error(error.message || "Failed to connect to Edge Function");
     }
 
-    return result;
+    return data;
   };
 
   // ── Approve ───────────────────────────────────────────────────────────────
