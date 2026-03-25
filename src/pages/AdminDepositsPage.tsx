@@ -57,17 +57,29 @@ export default function AdminDepositsPage() {
     else toast.error("Failed to load proof image");
   };
 
-  // ── تم إصلاح هذه الدالة ──────────────────────────────────────────────────
+  // ── تم تحسين دالة الاتصال بالـ API ──────────────────────────────────────────────────
   const callAdminAPI = async (depositId: string, action: "approve" | "reject" | "delete" | "retry_commissions") => {
-    // استخدام supabase.functions.invoke للاتصال المباشر بالـ Edge Function
-    // هذا يحل مشكلة "Failed to send request" ويتكفل تلقائياً ب اﻷuthorization
+    // 1. محاولة استدعاء الدالة
     const { data, error } = await supabase.functions.invoke("admin-deposit", {
       body: { deposit_id: depositId, action },
     });
 
+    // 2. التعامل مع أخطاء الاتصال (مثل Failed to send request)
     if (error) {
-      console.error("Edge Function Error:", error);
-      throw new Error(error.message || "Failed to connect to Edge Function");
+      console.error("Edge Function Network Error:", error);
+      throw new Error(error.message || "Network error: Could not reach Edge Function. Check if function is deployed.");
+    }
+
+    // 3. التعامل مع الأخطاء المنطقية التي ترجعها الدالة (مثل RLS أو مشاكل قاعدة البيانات)
+    // هذا هو الجزء الذي يحل مشكلة "تم الحذف وهو لم يُحذف"
+    if (data && data.error) {
+      console.error("Edge Function Logic Error:", data.error);
+      throw new Error(data.error || "The function returned a logical error.");
+    }
+
+    // 4. التأكد من وجود بيانات
+    if (!data) {
+      throw new Error("No response received from function.");
     }
 
     return data;
@@ -129,10 +141,11 @@ export default function AdminDepositsPage() {
     setLoading(deleteTarget.id + "-delete");
     try {
       await callAdminAPI(deleteTarget.id, "delete");
-      toast.success("Deposit deleted");
+      toast.success("Deposit deleted successfully");
       setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
+      // الآن سيظهر سبب الفشل الحقيقي (مثل RLS Policy)
       toast.error("Failed to delete: " + err.message);
     } finally {
       setLoading(null);
@@ -149,18 +162,24 @@ export default function AdminDepositsPage() {
         return; 
       }
       
-      // Delete all deposits one by one using API
       let deleted = 0;
+      let failed = 0;
+      
       for (const dep of all) {
         try {
           await callAdminAPI(dep.id, "delete");
           deleted++;
         } catch {
-          // Continue with others
+          failed++;
         }
       }
       
-      toast.success(`${deleted} deposit(s) deleted`);
+      if (failed > 0) {
+        toast.warning(`${deleted} deleted, ${failed} failed. Check console logs.`);
+      } else {
+        toast.success(`${deleted} deposit(s) deleted`);
+      }
+      
       setDeleteAllOpen(false);
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
