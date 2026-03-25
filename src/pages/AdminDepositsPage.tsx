@@ -211,17 +211,21 @@ export default function AdminDepositsPage() {
       // Step 2: Credit depositor balance (needs admin update policy on profiles)
       const currentBalance = dep?.balance ?? 0;
       const amount = dep?.amount ?? 0;
-      const { error: balErr } = await supabase
+      const { error: balErr, data: balData } = await supabase
         .from("profiles")
         .update({ balance: currentBalance + amount })
-        .eq("user_id", dep?.user_id);
+        .eq("user_id", dep?.user_id)
+        .select("balance")
+        .maybeSingle();
 
-      if (balErr) {
-        // Deposit was approved but balance credit failed — show SQL
+      // Detect silent RLS failure: no error but 0 rows updated (balance unchanged)
+      const balanceCredited = !balErr && balData !== null;
+
+      if (balErr || !balanceCredited) {
         setSqlOpen(true);
         setResult({
           depositId, userName, ok: false, method: "direct",
-          error: "Deposit status updated to 'approved' but balance credit failed — admin policy missing. Run the SQL setup.",
+          error: `Deposit approved but balance credit failed (admin UPDATE policy missing on profiles). Run the 2-line SQL fix, then use "Retry Commission" on this deposit.`,
           lines: [],
         });
         queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
@@ -291,10 +295,35 @@ export default function AdminDepositsPage() {
       const isNotFound = rpcErr.code === "PGRST202" || rpcErr.message?.includes("does not exist");
       if (!isNotFound) throw new Error(rpcErr.message);
 
-      // Direct fallback
+      // Direct fallback — also fix depositor balance if it wasn't credited
+      // Step A: Try to credit depositor balance (silently skipped if already done)
+      const depAmount = dep?.amount ?? 0;
+      const { data: depProfile } = await supabase
+        .from("profiles")
+        .select("balance")
+        .eq("user_id", dep?.user_id)
+        .maybeSingle();
+
+      const currentDepBal = depProfile?.balance ?? 0;
+      const { data: balData } = await supabase
+        .from("profiles")
+        .update({ balance: currentDepBal + depAmount })
+        .eq("user_id", dep?.user_id)
+        .select("balance")
+        .maybeSingle();
+
+      if (!balData) {
+        // Silent RLS failure — can't credit balance
+        setSqlOpen(true);
+        setResult({ depositId, userName, ok: false, method: "direct", error: "Balance credit failed — run the 2-line SQL fix first, then retry.", lines: [] });
+        return;
+      }
+
+      // Step B: Commission chain
       if (!dep?.referred_by) {
-        setResult({ depositId, userName, ok: true, method: "direct", lines: [], skipped: true, skipReason: "No referrer" });
-        toast.info("No referrer — nothing to credit");
+        setResult({ depositId, userName, ok: true, method: "direct", lines: [], skipped: true, skipReason: "No referrer — balance has been credited" });
+        queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
+        toast.success("Depositor balance credited — no referrer for commissions");
         return;
       }
 
@@ -303,7 +332,7 @@ export default function AdminDepositsPage() {
       setResult({ depositId, userName, ok: !hasErrors || lines.some((l) => l.ok), method: "direct", lines });
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
       if (hasErrors) { setSqlOpen(true); toast.warning("Some commissions failed — run SQL setup"); }
-      else toast.success("Commissions credited");
+      else toast.success("Balance and commissions fixed successfully");
     } catch (err: any) {
       toast.error("Retry failed: " + err.message);
     } finally {
