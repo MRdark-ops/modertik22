@@ -9,95 +9,44 @@ import {
   DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Trash2, Loader2, AlertTriangle, RefreshCw, CheckCircle2, XCircle, Info } from "lucide-react";
+import { Trash2, Loader2, AlertTriangle, RefreshCw, CheckCircle2, XCircle, Info, Copy, ExternalLink } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+
+const COMMISSION_AMOUNTS = [2.50, 2.00, 1.50, 1.00, 0.50];
+
+const SUPABASE_PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "tflqruwrfplrsfasfbia";
+const SQL_EDITOR_URL = `https://supabase.com/dashboard/project/${SUPABASE_PROJECT_ID}/sql/new`;
+
+// Minimal SQL — just 2 policies (much simpler than RPC functions)
+const MINIMAL_SQL = `-- Run these 2 statements in Supabase SQL Editor:
+-- ${SQL_EDITOR_URL}
+
+CREATE POLICY IF NOT EXISTS "Admins can update all profiles"
+  ON public.profiles FOR UPDATE TO authenticated
+  USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE POLICY IF NOT EXISTS "Admins can insert commissions"
+  ON public.referral_commissions FOR INSERT TO authenticated
+  WITH CHECK (public.has_role(auth.uid(), 'admin'));`;
 
 interface CommissionLine {
   level: number;
-  referrer_id: string;
   name: string;
   amount: number;
   ok: boolean;
   error?: string;
 }
 
-interface CommissionRunResult {
+interface ApproveResult {
   depositId: string;
   userName: string;
   ok: boolean;
-  skipped?: boolean;
-  reason?: string;
+  method: "rpc" | "direct";
   error?: string;
   lines: CommissionLine[];
-  rpcMissing?: boolean;
+  skipped?: boolean;
+  skipReason?: string;
 }
-
-// SQL the admin must run in Supabase if the RPC functions are not yet applied
-const REQUIRED_SQL = `-- Run this in Supabase SQL Editor → https://supabase.com/dashboard/project/_/sql
-
-CREATE OR REPLACE FUNCTION public.admin_run_commissions(p_deposit_id UUID)
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
-AS $$
-DECLARE
-  v_caller UUID := auth.uid(); v_is_admin BOOLEAN;
-  v_deposit RECORD; v_current_uid UUID; v_ancestor_id UUID;
-  v_ancestor_bal NUMERIC; v_ancestor_nm TEXT; v_comm_amt NUMERIC;
-  v_existing INT; v_lines JSON[] := ARRAY[]::JSON[];
-  AMOUNTS CONSTANT NUMERIC[] := ARRAY[2.50, 2.00, 1.50, 1.00, 0.50];
-BEGIN
-  IF v_caller IS NULL THEN RETURN json_build_object('ok',false,'error','Unauthorized'); END IF;
-  SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id=v_caller AND role='admin') INTO v_is_admin;
-  IF NOT v_is_admin THEN RETURN json_build_object('ok',false,'error','Admin only'); END IF;
-  SELECT d.*,p.referred_by,p.balance AS depositor_balance INTO v_deposit
-  FROM deposits d JOIN profiles p ON p.user_id=d.user_id WHERE d.id=p_deposit_id;
-  IF NOT FOUND THEN RETURN json_build_object('ok',false,'error','Deposit not found'); END IF;
-  IF v_deposit.status != 'approved' THEN RETURN json_build_object('ok',false,'error','Deposit not approved'); END IF;
-  IF v_deposit.referred_by IS NULL THEN
-    RETURN json_build_object('ok',true,'skipped',true,'reason','No referrer','lines','[]'::JSON);
-  END IF;
-  SELECT COUNT(*) INTO v_existing FROM referral_commissions WHERE deposit_id=p_deposit_id AND status='paid';
-  IF v_existing > 0 THEN
-    RETURN json_build_object('ok',true,'skipped',true,'reason','Already paid ('||v_existing||' records)','lines','[]'::JSON);
-  END IF;
-  v_current_uid := v_deposit.user_id;
-  FOR lvl IN 1..5 LOOP
-    SELECT referred_by INTO v_ancestor_id FROM profiles WHERE user_id=v_current_uid;
-    EXIT WHEN v_ancestor_id IS NULL;
-    v_comm_amt := AMOUNTS[lvl];
-    SELECT full_name,COALESCE(balance,0) INTO v_ancestor_nm,v_ancestor_bal FROM profiles WHERE user_id=v_ancestor_id;
-    BEGIN
-      INSERT INTO referral_commissions(referrer_id,referred_id,deposit_id,level,rate,commission_amount,status)
-      VALUES(v_ancestor_id,v_deposit.user_id,p_deposit_id,lvl,0,v_comm_amt,'paid');
-      UPDATE profiles SET balance=COALESCE(balance,0)+v_comm_amt WHERE user_id=v_ancestor_id;
-      v_lines := v_lines || json_build_object('level',lvl,'referrer_id',v_ancestor_id,'name',COALESCE(v_ancestor_nm,'Unknown'),'amount',v_comm_amt,'ok',true);
-    EXCEPTION WHEN OTHERS THEN
-      v_lines := v_lines || json_build_object('level',lvl,'referrer_id',v_ancestor_id,'name',COALESCE(v_ancestor_nm,'Unknown'),'amount',v_comm_amt,'ok',false,'error',SQLERRM);
-    END;
-    v_current_uid := v_ancestor_id;
-  END LOOP;
-  RETURN json_build_object('ok',true,'skipped',false,'lines_count',array_length(v_lines,1),'lines',array_to_json(v_lines));
-END; $$;
-GRANT EXECUTE ON FUNCTION public.admin_run_commissions(UUID) TO authenticated;
-
-CREATE OR REPLACE FUNCTION public.admin_approve_deposit(p_deposit_id UUID)
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
-AS $$
-DECLARE
-  v_caller UUID := auth.uid(); v_is_admin BOOLEAN;
-  v_deposit RECORD; v_comm_result JSON;
-BEGIN
-  IF v_caller IS NULL THEN RETURN json_build_object('ok',false,'error','Unauthorized'); END IF;
-  SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id=v_caller AND role='admin') INTO v_is_admin;
-  IF NOT v_is_admin THEN RETURN json_build_object('ok',false,'error','Admin only'); END IF;
-  SELECT * INTO v_deposit FROM deposits WHERE id=p_deposit_id;
-  IF NOT FOUND THEN RETURN json_build_object('ok',false,'error','Deposit not found'); END IF;
-  IF v_deposit.status != 'pending' THEN RETURN json_build_object('ok',false,'error','Already processed: '||v_deposit.status); END IF;
-  UPDATE deposits SET status='approved' WHERE id=p_deposit_id;
-  UPDATE profiles SET balance=COALESCE(balance,0)+v_deposit.amount WHERE user_id=v_deposit.user_id;
-  SELECT public.admin_run_commissions(p_deposit_id) INTO v_comm_result;
-  RETURN json_build_object('ok',true,'status','approved','amount',v_deposit.amount,'commission',v_comm_result);
-END; $$;
-GRANT EXECUTE ON FUNCTION public.admin_approve_deposit(UUID) TO authenticated;`;
 
 export default function AdminDepositsPage() {
   const queryClient = useQueryClient();
@@ -106,13 +55,15 @@ export default function AdminDepositsPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; amount: number; status: string } | null>(null);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
-  const [commissionResult, setCommissionResult] = useState<CommissionRunResult | null>(null);
-  const [showRequiredSql, setShowRequiredSql] = useState(false);
+  const [result, setResult] = useState<ApproveResult | null>(null);
+  const [sqlOpen, setSqlOpen] = useState(false);
+  const [sqlCopied, setSqlCopied] = useState(false);
 
-  const handleViewProof = async (path: string) => {
-    const { data } = await supabase.storage.from("deposit-proofs").createSignedUrl(path, 300);
-    if (data?.signedUrl) { setProofUrl(data.signedUrl); setProofOpen(true); }
-    else toast.error("Failed to load proof image");
+  const copySql = () => {
+    navigator.clipboard.writeText(MINIMAL_SQL);
+    setSqlCopied(true);
+    setTimeout(() => setSqlCopied(false), 2000);
+    toast.success("SQL copied — paste it in the Supabase SQL Editor and click Run");
   };
 
   const { data: deposits } = useQuery({
@@ -126,14 +77,12 @@ export default function AdminDepositsPage() {
 
       const userIds = Array.from(new Set(deps.map((d) => d.user_id)));
       const [profilesRes, commissionsRes] = await Promise.all([
-        supabase.from("profiles").select("user_id, full_name, referred_by").in("user_id", userIds),
-        supabase.from("referral_commissions")
-          .select("deposit_id")
-          .in("deposit_id", deps.map((d) => d.id)),
+        supabase.from("profiles").select("user_id, full_name, referred_by, balance").in("user_id", userIds),
+        supabase.from("referral_commissions").select("deposit_id").in("deposit_id", deps.map((d) => d.id)),
       ]);
 
       const profileMap = new Map(
-        (profilesRes.data ?? []).map((p) => [p.user_id, { name: p.full_name, referredBy: p.referred_by }])
+        (profilesRes.data ?? []).map((p) => [p.user_id, p])
       );
       const paidDeposits = new Set<string>(
         (commissionsRes.data ?? []).map((c) => c.deposit_id).filter(Boolean) as string[]
@@ -141,111 +90,222 @@ export default function AdminDepositsPage() {
 
       return deps.map((d) => ({
         ...d,
-        full_name: profileMap.get(d.user_id)?.name ?? "Unknown",
-        referred_by: profileMap.get(d.user_id)?.referredBy ?? null,
+        full_name: profileMap.get(d.user_id)?.full_name ?? "Unknown",
+        balance: profileMap.get(d.user_id)?.balance ?? 0,
+        referred_by: profileMap.get(d.user_id)?.referred_by ?? null,
         has_commissions: paidDeposits.has(d.id),
       }));
     },
   });
 
-  // ── Parse RPC commission JSON ─────────────────────────────────────────────
-  const parseCommissionJson = (raw: any): { lines: CommissionLine[]; skipped: boolean; reason?: string } => {
-    if (!raw) return { lines: [], skipped: true, reason: "No commission data returned" };
-    const rawLines = Array.isArray(raw.lines) ? raw.lines : (typeof raw.lines === "string" ? JSON.parse(raw.lines) : []);
-    return {
-      lines: rawLines as CommissionLine[],
-      skipped: !!raw.skipped,
-      reason: raw.reason,
-    };
+  const handleViewProof = async (path: string) => {
+    const { data } = await supabase.storage.from("deposit-proofs").createSignedUrl(path, 300);
+    if (data?.signedUrl) { setProofUrl(data.signedUrl); setProofOpen(true); }
+    else toast.error("Failed to load proof image");
   };
 
-  // ── Approve via RPC ───────────────────────────────────────────────────────
-  const handleApprove = async (depositId: string) => {
-    setLoading(depositId + "-approve");
-    const userName = (deposits?.find((d: any) => d.id === depositId) as any)?.full_name ?? "User";
-    try {
-      const { data, error } = await supabase.rpc("admin_approve_deposit", { p_deposit_id: depositId });
+  // ── Commission chain (direct INSERT — needs "Admins can insert commissions" policy) ──
+  const runCommissionChain = async (
+    depositId: string,
+    depositorUserId: string
+  ): Promise<CommissionLine[]> => {
+    const lines: CommissionLine[] = [];
+    let currentUserId = depositorUserId;
 
-      if (error) {
-        // RPC function might not be applied yet
-        if (error.message?.includes("does not exist") || error.code === "PGRST202") {
-          setShowRequiredSql(true);
-          toast.error("Database function not yet applied — see the SQL setup panel");
-          return;
-        }
-        throw new Error(error.message);
+    for (let lvl = 1; lvl <= 5; lvl++) {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("referred_by, full_name, balance")
+        .eq("user_id", currentUserId)
+        .maybeSingle();
+
+      if (!prof?.referred_by) break;
+
+      const commAmt = COMMISSION_AMOUNTS[lvl - 1];
+      const ancestorId = prof.referred_by;
+
+      // Get ancestor info
+      const { data: ancestor } = await supabase
+        .from("profiles")
+        .select("full_name, balance")
+        .eq("user_id", ancestorId)
+        .maybeSingle();
+
+      try {
+        // Insert commission record
+        const { error: insErr } = await supabase.from("referral_commissions").insert({
+          referrer_id: ancestorId,
+          referred_id: depositorUserId,
+          deposit_id: depositId,
+          level: lvl,
+          rate: 0,
+          commission_amount: commAmt,
+          status: "paid",
+        });
+        if (insErr) throw insErr;
+
+        // Credit ancestor balance
+        const newBal = (ancestor?.balance ?? 0) + commAmt;
+        const { error: balErr } = await supabase
+          .from("profiles")
+          .update({ balance: newBal })
+          .eq("user_id", ancestorId);
+        if (balErr) throw balErr;
+
+        lines.push({ level: lvl, name: ancestor?.full_name ?? "Unknown", amount: commAmt, ok: true });
+      } catch (err: any) {
+        lines.push({ level: lvl, name: ancestor?.full_name ?? "Unknown", amount: commAmt, ok: false, error: err.message });
+        break; // Stop on first error — likely a missing policy
       }
 
-      const res = data as any;
-      if (!res?.ok) throw new Error(res?.error ?? "Approval failed");
+      currentUserId = ancestorId;
+    }
+    return lines;
+  };
 
-      const { lines, skipped, reason } = parseCommissionJson(res.commission);
+  // ── Approve: try RPC first, fall back to direct operations ──────────────
+  const handleApprove = async (depositId: string) => {
+    setLoading(depositId + "-approve");
+    const dep = (deposits as any[])?.find((d) => d.id === depositId);
+    const userName = dep?.full_name ?? "User";
 
-      setCommissionResult({
-        depositId,
-        userName,
-        ok: true,
-        skipped,
-        reason,
-        lines,
+    try {
+      // ── Attempt 1: RPC (atomic, SECURITY DEFINER) ──────────────────────
+      const { data: rpcData, error: rpcErr } = await supabase.rpc("admin_approve_deposit", {
+        p_deposit_id: depositId,
       });
+
+      if (!rpcErr) {
+        const res = rpcData as any;
+        if (!res?.ok) throw new Error(res?.error ?? "RPC returned not-ok");
+        const commJson = res.commission ?? {};
+        const rawLines: CommissionLine[] = Array.isArray(commJson.lines)
+          ? commJson.lines
+          : typeof commJson.lines === "string"
+          ? JSON.parse(commJson.lines)
+          : [];
+        setResult({
+          depositId, userName, ok: true, method: "rpc",
+          lines: rawLines,
+          skipped: !!commJson.skipped,
+          skipReason: commJson.reason,
+        });
+        queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
+        toast.success("Deposit approved — commissions processed via database function");
+        return;
+      }
+
+      // If RPC doesn't exist, fall through to direct approach
+      const isNotFound = rpcErr.code === "PGRST202" || rpcErr.message?.includes("does not exist");
+      if (!isNotFound) throw new Error(rpcErr.message);
+
+      // ── Attempt 2: Direct operations (needs 2 admin policies) ──────────
+      // Step 1: Approve deposit (admin update policy exists ✓)
+      const { error: depErr } = await supabase
+        .from("deposits")
+        .update({ status: "approved" })
+        .eq("id", depositId)
+        .eq("status", "pending");
+      if (depErr) throw new Error("Failed to approve deposit: " + depErr.message);
+
+      // Step 2: Credit depositor balance (needs admin update policy on profiles)
+      const currentBalance = dep?.balance ?? 0;
+      const amount = dep?.amount ?? 0;
+      const { error: balErr } = await supabase
+        .from("profiles")
+        .update({ balance: currentBalance + amount })
+        .eq("user_id", dep?.user_id);
+
+      if (balErr) {
+        // Deposit was approved but balance credit failed — show SQL
+        setSqlOpen(true);
+        setResult({
+          depositId, userName, ok: false, method: "direct",
+          error: "Deposit status updated to 'approved' but balance credit failed — admin policy missing. Run the SQL setup.",
+          lines: [],
+        });
+        queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
+        return;
+      }
+
+      // Step 3: Commission chain
+      let lines: CommissionLine[] = [];
+      let skipped = false;
+      let skipReason: string | undefined;
+
+      if (!dep?.referred_by) {
+        skipped = true;
+        skipReason = "User has no referrer";
+      } else {
+        // Check if already paid
+        const { count } = await supabase
+          .from("referral_commissions")
+          .select("id", { count: "exact", head: true })
+          .eq("deposit_id", depositId)
+          .eq("status", "paid");
+        if ((count ?? 0) > 0) {
+          skipped = true;
+          skipReason = "Commissions already exist";
+        } else {
+          lines = await runCommissionChain(depositId, dep.user_id);
+        }
+      }
 
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
 
-      if (lines.length > 0 && lines.every((l) => l.ok)) {
-        toast.success("Deposit approved — commissions credited to referrers");
-      } else if (skipped) {
-        toast.success("Deposit approved — see commission details");
-      } else {
-        toast.success("Deposit approved — check commission report for details");
-      }
+      const hasErrors = lines.some((l) => !l.ok);
+      if (hasErrors) setSqlOpen(true);
+
+      setResult({ depositId, userName, ok: true, method: "direct", lines, skipped, skipReason });
+      if (!hasErrors) toast.success("Deposit approved — commissions credited");
+      else toast.warning("Deposit approved — some commissions failed (run SQL setup)");
     } catch (err: any) {
-      toast.error(`Failed to approve: ${err.message}`);
+      toast.error("Approval failed: " + err.message);
     } finally {
       setLoading(null);
     }
   };
 
-  // ── Retry commissions via RPC ─────────────────────────────────────────────
+  // ── Retry commissions ────────────────────────────────────────────────────
   const handleRetryCommissions = async (depositId: string, userName: string) => {
     setLoading(depositId + "-retry");
+    const dep = (deposits as any[])?.find((d) => d.id === depositId);
     try {
-      const { data, error } = await supabase.rpc("admin_run_commissions", { p_deposit_id: depositId });
-
-      if (error) {
-        if (error.message?.includes("does not exist") || error.code === "PGRST202") {
-          setShowRequiredSql(true);
-          toast.error("Database function not yet applied — see the SQL setup panel");
-          return;
-        }
-        throw new Error(error.message);
-      }
-
-      const res = data as any;
-      const { lines, skipped, reason } = parseCommissionJson(res);
-
-      setCommissionResult({
-        depositId,
-        userName,
-        ok: !!res?.ok,
-        skipped,
-        reason: res?.error ?? reason,
-        lines,
+      // Try RPC first
+      const { data: rpcData, error: rpcErr } = await supabase.rpc("admin_run_commissions", {
+        p_deposit_id: depositId,
       });
 
-      queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
-
-      if (!res?.ok) {
-        toast.error(res?.error ?? "Commission run failed");
-      } else if (skipped) {
-        toast.info("Commissions skipped — " + (reason ?? "see details"));
-      } else if (lines.every((l) => l.ok)) {
-        toast.success("Commissions credited successfully");
-      } else {
-        toast.warning("Commission run complete — some entries failed");
+      if (!rpcErr) {
+        const res = rpcData as any;
+        const rawLines: CommissionLine[] = Array.isArray(res.lines)
+          ? res.lines : typeof res.lines === "string" ? JSON.parse(res.lines) : [];
+        setResult({ depositId, userName, ok: !!res.ok, method: "rpc", lines: rawLines, skipped: !!res.skipped, skipReason: res.reason });
+        queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
+        if (res.skipped) toast.info("Skipped: " + res.reason);
+        else if (rawLines.every((l) => l.ok)) toast.success("Commissions credited");
+        else toast.warning("Some commissions failed");
+        return;
       }
+
+      const isNotFound = rpcErr.code === "PGRST202" || rpcErr.message?.includes("does not exist");
+      if (!isNotFound) throw new Error(rpcErr.message);
+
+      // Direct fallback
+      if (!dep?.referred_by) {
+        setResult({ depositId, userName, ok: true, method: "direct", lines: [], skipped: true, skipReason: "No referrer" });
+        toast.info("No referrer — nothing to credit");
+        return;
+      }
+
+      const lines = await runCommissionChain(depositId, dep.user_id);
+      const hasErrors = lines.some((l) => !l.ok);
+      setResult({ depositId, userName, ok: !hasErrors || lines.some((l) => l.ok), method: "direct", lines });
+      queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
+      if (hasErrors) { setSqlOpen(true); toast.warning("Some commissions failed — run SQL setup"); }
+      else toast.success("Commissions credited");
     } catch (err: any) {
-      toast.error(`Commission retry failed: ${err.message}`);
+      toast.error("Retry failed: " + err.message);
     } finally {
       setLoading(null);
     }
@@ -255,25 +315,18 @@ export default function AdminDepositsPage() {
   const handleReject = async (depositId: string) => {
     setLoading(depositId + "-reject");
     try {
-      const { data: dep, error } = await supabase
-        .from("deposits").select("status").eq("id", depositId).single();
+      const { error } = await supabase.from("deposits").update({ status: "rejected" }).eq("id", depositId).eq("status", "pending");
       if (error) throw new Error(error.message);
-      if (dep.status !== "pending") throw new Error("Deposit already processed");
-
-      const { error: updateErr } = await supabase
-        .from("deposits").update({ status: "rejected" }).eq("id", depositId);
-      if (updateErr) throw new Error(updateErr.message);
-
       toast.success("Deposit rejected");
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
-      toast.error(`Failed to reject: ${err.message}`);
+      toast.error("Failed to reject: " + err.message);
     } finally {
       setLoading(null);
     }
   };
 
-  // ── Delete single ─────────────────────────────────────────────────────────
+  // ── Delete ───────────────────────────────────────────────────────────────
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setLoading(deleteTarget.id + "-delete");
@@ -284,32 +337,24 @@ export default function AdminDepositsPage() {
       setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
-      toast.error(`Failed to delete: ${err.message}`);
+      toast.error("Failed to delete: " + err.message);
     } finally {
       setLoading(null);
     }
   };
 
-  // ── Delete ALL deposits ────────────────────────────────────────────────────
   const handleDeleteAll = async () => {
     setLoading("delete-all");
     try {
-      const { data: allDeposits, error: fetchErr } = await supabase
-        .from("deposits").select("id");
-      if (fetchErr) throw new Error(fetchErr.message);
-      if (!allDeposits || allDeposits.length === 0) {
-        toast.info("No deposits to delete");
-        setDeleteAllOpen(false);
-        return;
-      }
-      const ids = allDeposits.map((d) => d.id);
-      const { error } = await supabase.from("deposits").delete().in("id", ids);
+      const { data: all } = await supabase.from("deposits").select("id");
+      if (!all?.length) { toast.info("No deposits to delete"); setDeleteAllOpen(false); return; }
+      const { error } = await supabase.from("deposits").delete().in("id", all.map((d) => d.id));
       if (error) throw new Error(error.message);
-      toast.success(`${ids.length} deposit(s) deleted successfully`);
+      toast.success(`${all.length} deposit(s) deleted`);
       setDeleteAllOpen(false);
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
-      toast.error(`Failed to delete all: ${err.message}`);
+      toast.error("Failed: " + err.message);
     } finally {
       setLoading(null);
     }
@@ -319,88 +364,82 @@ export default function AdminDepositsPage() {
 
   return (
     <DashboardLayout isAdmin title="Deposit Management">
-      <div className="space-y-6 animate-fade-in">
+      <div className="space-y-5 animate-fade-in">
 
-        {/* ── Required SQL banner ── */}
-        {showRequiredSql && (
-          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-yellow-400 flex items-center gap-2">
+        {/* ── SQL Setup Dialog ─────────────────────────────────────────── */}
+        <Dialog open={sqlOpen} onOpenChange={setSqlOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-yellow-400">
                 <AlertTriangle className="w-4 h-4" />
-                One-time Setup Required — Run in Supabase SQL Editor
-              </h3>
-              <button onClick={() => setShowRequiredSql(false)} className="text-muted-foreground hover:text-foreground text-xs">✕ Dismiss</button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              The referral commission functions are not yet applied to your Supabase project.
-              Copy the SQL below and run it in{" "}
-              <a href={`https://supabase.com/dashboard/project/${import.meta.env.VITE_SUPABASE_PROJECT_ID}/sql`}
-                target="_blank" rel="noopener noreferrer"
-                className="text-primary underline">
-                Supabase SQL Editor ↗
-              </a>
-            </p>
-            <ScrollArea className="h-48 rounded-lg bg-black/40 border border-border">
-              <pre className="text-[10px] p-3 text-green-300 leading-relaxed whitespace-pre-wrap font-mono">
-                {REQUIRED_SQL}
-              </pre>
-            </ScrollArea>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-xs"
-              onClick={() => { navigator.clipboard.writeText(REQUIRED_SQL); toast.success("SQL copied to clipboard"); }}
-            >
-              Copy SQL
-            </Button>
-          </div>
-        )}
+                One-Time Database Setup Required
+              </DialogTitle>
+              <DialogDescription className="pt-1">
+                Run these 2 lines in{" "}
+                <a href={SQL_EDITOR_URL} target="_blank" rel="noopener noreferrer"
+                  className="text-primary underline inline-flex items-center gap-1">
+                  Supabase SQL Editor <ExternalLink className="w-3 h-3" />
+                </a>
+                {" "}to enable commission payouts.
+              </DialogDescription>
+            </DialogHeader>
 
-        {/* ── Header bar ── */}
+            <div className="bg-black/60 border border-border rounded-xl p-4 font-mono text-xs text-green-300 leading-relaxed whitespace-pre-wrap">
+              {MINIMAL_SQL}
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <Button onClick={copySql} variant="outline" className="flex-1 gap-2" data-testid="button-copy-sql">
+                <Copy className="w-3.5 h-3.5" />
+                {sqlCopied ? "Copied!" : "Copy SQL"}
+              </Button>
+              <Button asChild variant="outline" className="flex-1 gap-2">
+                <a href={SQL_EDITOR_URL} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Open SQL Editor
+                </a>
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground text-center">
+              After running: paste the SQL → click <strong>Run</strong> → come back here
+            </p>
+
+            <DialogFooter>
+              <Button onClick={() => setSqlOpen(false)}>Done</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Header ──────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            {deposits?.length ?? 0} total deposit{deposits?.length !== 1 ? "s" : ""}
+            {deposits?.length ?? 0} deposit{deposits?.length !== 1 ? "s" : ""}
           </p>
           <div className="flex items-center gap-2">
-            {!showRequiredSql && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowRequiredSql(true)}
-                className="text-xs text-muted-foreground"
-                data-testid="button-show-sql-setup"
-              >
-                SQL Setup
-              </Button>
-            )}
+            <Button variant="outline" size="sm" onClick={() => setSqlOpen(true)}
+              className="text-xs text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/10"
+              data-testid="button-sql-setup">
+              <AlertTriangle className="w-3 h-3 mr-1" /> SQL Setup
+            </Button>
             {deposits && deposits.length > 0 && (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setDeleteAllOpen(true)}
-                disabled={!!loading}
-                className="flex items-center gap-1.5 text-xs"
-                data-testid="button-delete-all-deposits"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete All ({deposits.length})
+              <Button variant="destructive" size="sm" onClick={() => setDeleteAllOpen(true)}
+                disabled={!!loading} className="text-xs" data-testid="button-delete-all">
+                <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete All ({deposits.length})
               </Button>
             )}
           </div>
         </div>
 
+        {/* ── Table ───────────────────────────────────────────────────── */}
         <div className="glass-card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/30">
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">User</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Amount</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Proof</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Date</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Status</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Commission</th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-medium">Actions</th>
+                  {["User", "Amount", "Proof", "Date", "Status", "Commission", "Actions"].map((h) => (
+                    <th key={h} className="text-left py-3 px-4 text-muted-foreground font-medium">{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -409,242 +448,172 @@ export default function AdminDepositsPage() {
                     <td className="py-3 px-4 font-medium">{d.full_name}</td>
                     <td className="py-3 px-4 font-semibold">${Number(d.amount).toFixed(2)}</td>
                     <td className="py-3 px-4">
-                      {d.proof_url ? (
-                        <button onClick={() => handleViewProof(d.proof_url)} className="text-primary text-xs underline cursor-pointer hover:text-primary/80" data-testid={`button-view-proof-${d.id}`}>View</button>
-                      ) : "-"}
+                      {d.proof_url
+                        ? <button onClick={() => handleViewProof(d.proof_url)} className="text-primary text-xs underline hover:text-primary/80" data-testid={`button-proof-${d.id}`}>View</button>
+                        : "—"}
                     </td>
                     <td className="py-3 px-4 text-muted-foreground">{new Date(d.created_at).toLocaleDateString()}</td>
                     <td className="py-3 px-4"><StatusBadge status={d.status as any} /></td>
-
-                    {/* Commission status */}
                     <td className="py-3 px-4">
-                      {d.status === "approved" ? (
-                        d.referred_by ? (
-                          d.has_commissions ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-green-400">
-                              <CheckCircle2 className="w-3 h-3" /> Paid
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs text-yellow-400">
-                              <AlertTriangle className="w-3 h-3" /> Missing
-                            </span>
-                          )
-                        ) : (
-                          <span className="text-xs text-muted-foreground">No referrer</span>
-                        )
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                      {d.status === "approved"
+                        ? d.referred_by
+                          ? d.has_commissions
+                            ? <span className="inline-flex items-center gap-1 text-xs text-green-400"><CheckCircle2 className="w-3 h-3" /> Paid</span>
+                            : <span className="inline-flex items-center gap-1 text-xs text-yellow-400"><AlertTriangle className="w-3 h-3" /> Missing</span>
+                          : <span className="text-xs text-muted-foreground">No referrer</span>
+                        : <span className="text-xs text-muted-foreground">—</span>}
                     </td>
-
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1 flex-wrap">
                         {d.status === "pending" && (
                           <>
-                            <button
-                              onClick={() => handleApprove(d.id)}
-                              disabled={!!loading}
+                            <button onClick={() => handleApprove(d.id)} disabled={!!loading}
                               className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-success/10 text-success border border-success/20 hover:bg-success/20 disabled:opacity-50"
-                              data-testid={`button-approve-${d.id}`}
-                            >
+                              data-testid={`button-approve-${d.id}`}>
                               {isLoading(d.id, "approve") ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                               Approve
                             </button>
-                            <button
-                              onClick={() => handleReject(d.id)}
-                              disabled={!!loading}
+                            <button onClick={() => handleReject(d.id)} disabled={!!loading}
                               className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/20 disabled:opacity-50"
-                              data-testid={`button-reject-${d.id}`}
-                            >
+                              data-testid={`button-reject-${d.id}`}>
                               {isLoading(d.id, "reject") ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                               Reject
                             </button>
                           </>
                         )}
-
-                        {/* Retry commissions for approved + has referrer + missing commissions */}
                         {d.status === "approved" && d.referred_by && !d.has_commissions && (
-                          <button
-                            onClick={() => handleRetryCommissions(d.id, d.full_name)}
-                            disabled={!!loading}
+                          <button onClick={() => handleRetryCommissions(d.id, d.full_name)} disabled={!!loading}
                             className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20 disabled:opacity-50"
-                            data-testid={`button-retry-commission-${d.id}`}
-                          >
+                            data-testid={`button-retry-${d.id}`}>
                             {isLoading(d.id, "retry") ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
                             Retry Commission
                           </button>
                         )}
-
-                        <button
-                          onClick={() => setDeleteTarget({ id: d.id, name: d.full_name, amount: Number(d.amount), status: d.status })}
+                        <button onClick={() => setDeleteTarget({ id: d.id, name: d.full_name, amount: Number(d.amount), status: d.status })}
                           disabled={!!loading}
                           className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/20 disabled:opacity-50"
-                          data-testid={`button-delete-${d.id}`}
-                        >
-                          <Trash2 className="w-3 h-3" /> Delete
+                          data-testid={`button-delete-${d.id}`}>
+                          <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
                     </td>
                   </tr>
                 ))}
                 {!deposits?.length && (
-                  <tr><td colSpan={7} className="py-8 text-center text-muted-foreground">No deposits found</td></tr>
+                  <tr><td colSpan={7} className="py-10 text-center text-muted-foreground">No deposits found</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* ── Commission Result Dialog ── */}
-        <Dialog open={!!commissionResult} onOpenChange={(open) => { if (!open) setCommissionResult(null); }}>
-          <DialogContent className="max-w-lg">
+        {/* ── Approval / Commission Result Dialog ─────────────────────── */}
+        <Dialog open={!!result} onOpenChange={(open) => { if (!open) setResult(null); }}>
+          <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Info className="w-4 h-4 text-primary" />
-                Commission Report — {commissionResult?.userName}
+                {result?.userName} — {result?.ok ? "Approved" : "Issue Detected"}
               </DialogTitle>
             </DialogHeader>
-
-            <ScrollArea className="max-h-72 pr-1">
-              <div className="space-y-3 text-sm">
-
-                {/* Error */}
-                {commissionResult && !commissionResult.ok && (
-                  <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-xs text-red-400">
-                    {commissionResult.reason ?? "An error occurred"}
+            <ScrollArea className="max-h-64 pr-1">
+              <div className="space-y-2.5 text-sm">
+                {result?.error && (
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-xs text-red-400 space-y-2">
+                    <p>{result.error}</p>
+                    <Button size="sm" variant="outline" onClick={() => setSqlOpen(true)} className="text-xs h-7">
+                      View SQL Setup
+                    </Button>
                   </div>
                 )}
-
-                {/* Skipped */}
-                {commissionResult?.skipped && (
+                {result?.skipped && (
                   <div className="bg-secondary/50 border border-border rounded-lg p-3 text-xs text-muted-foreground">
-                    <span className="font-semibold text-foreground">Skipped: </span>
-                    {commissionResult.reason}
+                    <span className="font-semibold text-foreground">Commissions skipped: </span>{result.skipReason}
                   </div>
                 )}
-
-                {/* Commission lines */}
-                {commissionResult?.lines && commissionResult.lines.length > 0 && (
+                {result?.lines && result.lines.length > 0 && (
                   <div className="space-y-1.5">
-                    {commissionResult.lines.map((ln) => (
-                      <div
-                        key={ln.level}
-                        className={`flex items-start gap-2 p-2.5 rounded-lg border text-xs ${
-                          ln.ok ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20"
-                        }`}
-                      >
-                        {ln.ok
-                          ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 mt-0.5 shrink-0" />
-                          : <XCircle className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
-                        }
-                        <div className="flex-1">
-                          <span className="font-semibold">Level {ln.level}</span>
-                          {ln.name && <span className="text-muted-foreground ml-1">— {ln.name}</span>}
-                          <span className="ml-2 text-primary font-mono">+${ln.amount.toFixed(2)}</span>
-                          {ln.error && <p className="text-red-400 mt-0.5 break-all">{ln.error}</p>}
-                        </div>
+                    {result.lines.map((ln) => (
+                      <div key={ln.level} className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs ${ln.ok ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20"}`}>
+                        {ln.ok ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
+                        <span className="font-semibold">Level {ln.level}</span>
+                        <span className="text-muted-foreground">— {ln.name}</span>
+                        <span className="ml-auto text-primary font-mono">+${ln.amount.toFixed(2)}</span>
+                        {ln.error && <span className="text-red-400 break-all block w-full mt-1">{ln.error}</span>}
                       </div>
                     ))}
                   </div>
                 )}
-
-                {/* All levels succeed */}
-                {commissionResult?.lines && commissionResult.lines.length > 0 && commissionResult.lines.every(l => l.ok) && (
+                {result?.lines && result.lines.length > 0 && result.lines.every((l) => l.ok) && (
                   <p className="text-xs text-green-400 flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3" />
-                    All {commissionResult.lines.length} commission(s) credited successfully
+                    All {result.lines.length} commission(s) credited successfully
                   </p>
                 )}
-
-                {/* Prompt to apply SQL if any line failed */}
-                {commissionResult?.lines?.some(l => !l.ok) && (
-                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-xs space-y-1.5">
+                {result?.lines?.some((l) => !l.ok) && (
+                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-xs space-y-2">
                     <p className="text-yellow-400 font-semibold flex items-center gap-1">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      Commission functions may not be applied in Supabase
+                      <AlertTriangle className="w-3.5 h-3.5" /> Missing database permissions
                     </p>
-                    <p className="text-muted-foreground">
-                      Click "SQL Setup" in the deposits header to view and apply the required SQL.
-                    </p>
+                    <Button size="sm" variant="outline" onClick={() => setSqlOpen(true)} className="text-xs h-7">
+                      View 2-Line SQL Fix
+                    </Button>
                   </div>
                 )}
               </div>
             </ScrollArea>
-
             <DialogFooter>
-              <Button onClick={() => setCommissionResult(null)} data-testid="button-close-commission-result">
-                Close
-              </Button>
+              <Button onClick={() => setResult(null)} data-testid="button-close-result">Close</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* Proof Image Dialog */}
+        {/* ── Proof Dialog ─────────────────────────────────────────────── */}
         <Dialog open={proofOpen} onOpenChange={setProofOpen}>
           <DialogContent className="max-w-lg">
             <DialogHeader><DialogTitle>Deposit Proof</DialogTitle></DialogHeader>
-            {proofUrl && <img src={proofUrl} alt="Deposit proof" className="w-full rounded-lg" />}
+            {proofUrl && <img src={proofUrl} alt="proof" className="w-full rounded-lg" />}
           </DialogContent>
         </Dialog>
 
-        {/* Delete Single Confirmation Dialog */}
+        {/* ── Delete Single ────────────────────────────────────────────── */}
         <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
-              <DialogTitle className="text-destructive flex items-center gap-2">
-                <Trash2 className="w-4 h-4" /> Delete Deposit
-              </DialogTitle>
+              <DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-4 h-4" /> Delete Deposit</DialogTitle>
               <DialogDescription className="pt-2 space-y-1">
-                <span className="block">Are you sure you want to delete this deposit?</span>
-                {deleteTarget && (
-                  <span className="block text-foreground font-medium">
-                    {deleteTarget.name} — ${deleteTarget.amount.toFixed(2)}{" "}
-                    <span className="text-muted-foreground font-normal">({deleteTarget.status})</span>
-                  </span>
-                )}
+                <span className="block">Delete deposit for <strong>{deleteTarget?.name}</strong> — ${deleteTarget?.amount?.toFixed(2)}?</span>
                 {deleteTarget?.status === "approved" && (
-                  <span className="block text-yellow-500 text-xs mt-2">
-                    ⚠️ Already approved — deleting will NOT reverse the user's balance.
-                  </span>
+                  <span className="block text-yellow-500 text-xs mt-1">⚠️ Already approved — balance will NOT be reversed.</span>
                 )}
-                <span className="block text-muted-foreground text-xs mt-1">This action cannot be undone.</span>
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 mt-2">
-              <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={!!loading} data-testid="button-cancel-delete">Cancel</Button>
+              <Button variant="outline" onClick={() => setDeleteTarget(null)} data-testid="button-cancel-delete">Cancel</Button>
               <Button variant="destructive" onClick={handleDelete} disabled={!!loading} data-testid="button-confirm-delete">
-                {loading ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Deleting...</> : "Delete"}
+                {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null} Delete
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* Delete ALL Confirmation Dialog */}
-        <Dialog open={deleteAllOpen} onOpenChange={(open) => { if (!open) setDeleteAllOpen(false); }}>
+        {/* ── Delete All ───────────────────────────────────────────────── */}
+        <Dialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
-              <DialogTitle className="text-destructive flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" /> Delete All Deposits
-              </DialogTitle>
-              <DialogDescription className="pt-3 space-y-2">
-                <span className="block font-semibold text-foreground text-sm">
-                  This will permanently delete ALL {deposits?.length ?? 0} deposit record(s).
-                </span>
+              <DialogTitle className="text-destructive flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Delete All Deposits</DialogTitle>
+              <DialogDescription className="pt-2 space-y-1">
+                <span className="block font-semibold text-foreground text-sm">This will delete ALL {deposits?.length ?? 0} deposit records permanently.</span>
                 {deposits?.some((d: any) => d.status === "approved") && (
-                  <span className="block text-yellow-500 text-xs bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-2 mt-1">
-                    ⚠️ Some deposits are already approved — deleting them will NOT reverse user balances.
-                  </span>
+                  <span className="block text-yellow-500 text-xs mt-1">⚠️ Some are already approved — balances will NOT be reversed.</span>
                 )}
-                <span className="block text-destructive text-xs font-medium mt-1">This action cannot be undone.</span>
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 mt-2">
-              <Button variant="outline" onClick={() => setDeleteAllOpen(false)} disabled={loading === "delete-all"} data-testid="button-cancel-delete-all">Cancel</Button>
+              <Button variant="outline" onClick={() => setDeleteAllOpen(false)} data-testid="button-cancel-delete-all">Cancel</Button>
               <Button variant="destructive" onClick={handleDeleteAll} disabled={loading === "delete-all"} data-testid="button-confirm-delete-all">
-                {loading === "delete-all"
-                  ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Deleting...</>
-                  : <><Trash2 className="w-3 h-3 mr-1" /> Delete All</>
-                }
+                {loading === "delete-all" ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Trash2 className="w-3 h-3 mr-1" />}
+                Delete All
               </Button>
             </DialogFooter>
           </DialogContent>
