@@ -141,7 +141,11 @@ export default function AdminUsersPage() {
       toast.success(msgs[action]);
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
     } catch (err: any) {
-      toast.error(err.message || "Action failed");
+      const isEdgeError = err?.message?.includes('Edge Function') || err?.message?.includes('Approval failed');
+      toast.error(
+        isEdgeError ? "Action failed due to a server connection issue. Please try again." : err.message || "Action failed",
+        { description: isEdgeError ? "Check your network or the Edge Function deployment." : undefined }
+      );
     }
   };
 

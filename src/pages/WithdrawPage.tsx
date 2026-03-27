@@ -70,9 +70,13 @@ export default function WithdrawPage() {
       setWalletAddress("");
       queryClient.invalidateQueries({ queryKey: ["withdrawals"] });
       queryClient.invalidateQueries({ queryKey: ["profile"] });
-    } catch (error: any) {
-      const msg = error?.message || "Failed to create withdrawal";
-      toast({ title: "Error", description: msg, variant: "destructive" });
+    } catch (error: any) { // Add type annotation for error
+      const isEdgeError = error?.message?.includes('Edge Function') || error?.message?.includes('Approval failed');
+      toast({
+        title: isEdgeError ? "Connection Error" : "Error",
+        description: isEdgeError ? "Failed to create withdrawal due to a server connection issue. Please try again." : error?.message || "Failed to create withdrawal.",
+        variant: "destructive"
+      });
     } finally {
       setSubmitting(false);
     }

@@ -39,7 +39,11 @@ export default function AdminDashboard() {
       queryClient.invalidateQueries({ queryKey: ["admin-stats"] });
       queryClient.invalidateQueries({ queryKey: ["admin-recent-activity"] });
     } catch (error) {
-      toast.error("Failed to process deposit");
+      const isEdgeError = (error as any)?.message?.includes('Edge Function') || (error as any)?.message?.includes('Approval failed');
+      toast.error(
+        isEdgeError ? "Failed to process deposit due to a server connection issue. Please try again." : "Failed to process deposit.",
+        { description: isEdgeError ? "Check your network or the Edge Function deployment." : undefined }
+      );
     }
   };
 

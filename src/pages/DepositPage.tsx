@@ -142,7 +142,7 @@ export default function DepositPage() {
       const isEdgeError = error?.message?.includes('Edge Function') || error?.message?.includes('Approval failed');
       toast({ 
         title: isEdgeError ? "Connection Error" : "Error", 
-        description: isEdgeError ? "Failed to reach the server. Please try again in a few moments." : "Something went wrong.", 
+        description: isEdgeError ? "Failed to reach the server. Please try again in a few moments." : error?.message || "Something went wrong.", 
         variant: "destructive" 
       });
     }
