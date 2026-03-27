@@ -3,87 +3,42 @@ import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Wallet, TrendingUp, Users, ArrowDownToLine, ArrowUpFromLine, DollarSign } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import * as api from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 
 export default function UserDashboard() {
   const { user, profile } = useAuth();
 
-  const { data: recentDeposits = [] } = useQuery({
-    queryKey: ["recent-deposits", user?.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("deposits")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(5);
-      return data || [];
-    },
+  const { data: deposits = [] } = useQuery({
+    queryKey: ["deposits"],
+    queryFn: () => api.getDeposits().then(res => res.deposits || []),
     enabled: !!user,
   });
 
-  const { data: allApprovedDeposits = [] } = useQuery({
-    queryKey: ["all-approved-deposits", user?.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("deposits")
-        .select("amount")
-        .eq("status", "approved");
-      return data || [];
-    },
+  const { data: withdrawals = [] } = useQuery({
+    queryKey: ["withdrawals"],
+    queryFn: () => api.getWithdrawals().then(res => res.withdrawals || []),
     enabled: !!user,
   });
 
-  const { data: recentWithdrawals = [] } = useQuery({
-    queryKey: ["recent-withdrawals", user?.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("withdrawals")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(5);
-      return data || [];
-    },
-    enabled: !!user,
-  });
-
-
-  const { data: referralCount = 0 } = useQuery({
-    queryKey: ["referral-count", user?.id],
-    queryFn: async () => {
-      const { count } = await supabase
-        .from("referrals")
-        .select("*", { count: "exact", head: true })
-        .eq("referrer_id", user!.id)
-        .eq("level", 1);
-      return count || 0;
-    },
-    enabled: !!user,
-  });
-
-  const { data: allCommissions = [] } = useQuery({
-    queryKey: ["all-commissions", user?.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("referral_commissions")
-        .select("commission_amount, level")
-        .eq("referrer_id", user!.id)
-        .eq("status", "paid");
-      return data || [];
-    },
+  const { data: referralData } = useQuery({
+    queryKey: ["referrals"],
+    queryFn: () => api.getReferrals(),
     enabled: !!user,
   });
 
   const balance = profile?.balance ?? 0;
-  const totalDeposits = allApprovedDeposits.reduce((sum: number, d: any) => sum + Number(d.amount), 0);
-  const verifiedReferralCount = allCommissions.filter((c: any) => c.level === 1).length;
-  const totalCommissions = allCommissions.reduce((sum: number, c: any) => sum + Number(c.commission_amount), 0);
-
+  const approvedDeposits = deposits.filter((d: any) => d.status === 'approved') || [];
+  const totalDeposits = approvedDeposits.reduce((sum: number, d: any) => sum + Number(d.amount), 0);
+  
+  const referralStats = referralData?.stats || { total_referred: 0, total_earned: 0 };
+  const commissions = referralData?.commissions_breakdown || [];
+  
   const recentTransactions = [
-    ...recentDeposits.map((d: any) => ({
+    ...deposits.map((d: any) => ({
       id: d.id, type: "Deposit" as const, amount: Number(d.amount), status: d.status, date: d.created_at,
     })),
-    ...recentWithdrawals.map((w: any) => ({
+    ...withdrawals.map((w: any) => ({
       id: w.id, type: "Withdrawal" as const, amount: Number(w.amount), status: w.status, date: w.created_at,
     })),
   ]
@@ -95,9 +50,9 @@ export default function UserDashboard() {
       <div className="space-y-6 animate-fade-in">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard title="Account Balance" value={`$${Number(balance).toFixed(2)}`} icon={Wallet} />
-          <StatCard title="Total Earnings" value={`$${totalCommissions.toFixed(2)}`} icon={TrendingUp} />
-          <StatCard title="Referral Earnings" value={`$${totalCommissions.toFixed(2)}`} icon={Users} subtitle={`${verifiedReferralCount} verified referrals`} />
-          <StatCard title="Total Deposits" value={`$${totalDeposits.toFixed(2)}`} icon={DollarSign} subtitle={`${allApprovedDeposits.length} deposits`} />
+          <StatCard title="Total Earnings" value={`$${referralStats.total_earned.toFixed(2)}`} icon={TrendingUp} />
+          <StatCard title="Referral Earnings" value={`$${referralStats.total_earned.toFixed(2)}`} icon={Users} subtitle={`${referralStats.total_referred} referrals`} />
+          <StatCard title="Total Deposits" value={`$${totalDeposits.toFixed(2)}`} icon={DollarSign} subtitle={`${approvedDeposits.length} approved`} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -141,36 +96,23 @@ export default function UserDashboard() {
                   <div>
                     <p className="text-sm font-medium">Total Referrals</p>
                     <p className="text-xs text-muted-foreground">
-                      {referralCount} signed up · {verifiedReferralCount} verified
+                      {referralStats.total_referred} signed up
                     </p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold">{referralCount} people</p>
-                  <p className="text-xs text-muted-foreground">{verifiedReferralCount} approved</p>
+                  <p className="font-semibold">{referralStats.total_referred} people</p>
                 </div>
               </div>
-              <div className="flex items-center justify-between py-2 border-b border-border/50">
-                <span className="text-sm text-muted-foreground">Direct commissions</span>
-                <span className="text-sm font-semibold">
-                  ${allCommissions
-                    .filter((c: any) => c.level === 1)
-                    .reduce((s: number, c: any) => s + Number(c.commission_amount), 0)
-                    .toFixed(2)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between py-2 border-b border-border/50">
-                <span className="text-sm text-muted-foreground">Indirect commissions</span>
-                <span className="text-sm font-semibold">
-                  ${allCommissions
-                    .filter((c: any) => c.level === 2)
-                    .reduce((s: number, c: any) => s + Number(c.commission_amount), 0)
-                    .toFixed(2)}
-                </span>
-              </div>
+              {commissions.map((c, idx) => (
+                <div key={idx} className="flex items-center justify-between py-2 border-b border-border/50">
+                  <span className="text-sm text-muted-foreground">Level {c.level} commissions</span>
+                  <span className="text-sm font-semibold">${Number(c.total || 0).toFixed(2)}</span>
+                </div>
+              ))}
               <div className="flex items-center justify-between pt-2">
                 <span className="font-semibold">Total Referral Earnings</span>
-                <span className="text-lg font-bold gold-gradient-text">${totalCommissions.toFixed(2)}</span>
+                <span className="text-lg font-bold gold-gradient-text">${referralStats.total_earned.toFixed(2)}</span>
               </div>
             </div>
           </div>

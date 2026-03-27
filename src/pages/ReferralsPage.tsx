@@ -6,7 +6,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 
 // ─── VIP Level definitions ────────────────────────────────────────────────────
@@ -112,11 +112,8 @@ export default function ReferralsPage() {
   const { data: directCount = 0 } = useQuery({
     queryKey: ["direct-referral-count", user?.id],
     queryFn: async () => {
-      const { count } = await supabase
-        .from("profiles")
-        .select("*", { count: "exact", head: true })
-        .eq("referred_by", user!.id);
-      return count ?? 0;
+      const referrals = await api.getReferrals();
+      return referrals?.stats?.total_referred || 0;
     },
     enabled: !!user,
   });
@@ -125,16 +122,15 @@ export default function ReferralsPage() {
   const { data: commissionsByLevel = {} } = useQuery({
     queryKey: ["commissions-by-level", user?.id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("referral_commissions")
-        .select("level, commission_amount, referred_id")
-        .eq("referrer_id", user!.id)
-        .eq("status", "paid");
+      const referrals = await api.getReferrals();
       const map: Record<number, { count: number; total: number }> = {};
-      for (const row of data ?? []) {
-        if (!map[row.level]) map[row.level] = { count: 0, total: 0 };
-        map[row.level].count += 1;
-        map[row.level].total += Number(row.commission_amount);
+      if (referrals?.commissions_breakdown) {
+        referrals.commissions_breakdown.forEach((c: any) => {
+          const level = c.level || 1;
+          if (!map[level]) map[level] = { count: 0, total: 0 };
+          map[level].count = c.referral_count || 0;
+          map[level].total = Number(c.total || 0);
+        });
       }
       return map;
     },
@@ -145,12 +141,7 @@ export default function ReferralsPage() {
   const { data: directReferrals = [] } = useQuery({
     queryKey: ["direct-referrals", user?.id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("user_id, full_name, created_at")
-        .eq("referred_by", user!.id)
-        .order("created_at", { ascending: false });
-      return data || [];
+      return await api.getReferrals().then(r => r?.referrals || []);
     },
     enabled: !!user,
   });
@@ -159,13 +150,8 @@ export default function ReferralsPage() {
   const { data: verifiedDirectIds = new Set<string>() } = useQuery({
     queryKey: ["verified-direct-ids", user?.id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("referral_commissions")
-        .select("referred_id")
-        .eq("referrer_id", user!.id)
-        .eq("level", 1)
-        .eq("status", "paid");
-      return new Set((data ?? []).map((r: any) => r.referred_id));
+      const referrals = await api.getReferrals();
+      return new Set((referrals?.referrals || []).map((r: any) => r.user_id));
     },
     enabled: !!user,
   });

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import QRCode from "qrcode";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,103 +35,22 @@ export default function SecuritySettingsPage() {
   const { data: totpStatus, isLoading: statusLoading } = useQuery({
     queryKey: ["totp-status", user?.id],
     queryFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/totp-setup`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session?.access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action: "status" }),
-      });
-      return res.json();
+      // TODO: Implement TOTP endpoints in backend
+      return { enabled: false };
     },
     enabled: !!user,
   });
 
   const handleSetup = async () => {
-    setLoading(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/totp-setup`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session?.access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action: "setup" }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        toast({ title: "Error", description: data.error, variant: "destructive" });
-      } else {
-        setSetupData(data);
-      }
-    } catch {
-      toast({ title: "Error", description: "Failed to initialize 2FA setup", variant: "destructive" });
-    }
-    setLoading(false);
+    toast({ title: "Coming Soon", description: "2FA setup will be available in the next update", variant: "default" });
   };
 
   const handleEnable = async () => {
-    if (!/^\d{6}$/.test(code)) {
-      toast({ title: "Error", description: "Please enter a valid 6-digit code", variant: "destructive" });
-      return;
-    }
-    setLoading(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/totp-setup`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session?.access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action: "enable", code }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        toast({ title: "Invalid Code", description: data.error, variant: "destructive" });
-      } else {
-        toast({ title: "2FA Enabled", description: "Two-factor authentication has been activated." });
-        setSetupData(null);
-        setCode("");
-        queryClient.invalidateQueries({ queryKey: ["totp-status"] });
-      }
-    } catch {
-      toast({ title: "Error", description: "Failed to enable 2FA", variant: "destructive" });
-    }
-    setLoading(false);
+    toast({ title: "Coming Soon", description: "2FA setup will be available in the next update", variant: "default" });
   };
 
   const handleDisable = async () => {
-    if (!/^\d{6}$/.test(disableCode)) {
-      toast({ title: "Error", description: "Please enter a valid 6-digit code", variant: "destructive" });
-      return;
-    }
-    setLoading(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/totp-setup`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session?.access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action: "disable", code: disableCode }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        toast({ title: "Invalid Code", description: data.error, variant: "destructive" });
-      } else {
-        toast({ title: "2FA Disabled", description: "Two-factor authentication has been removed." });
-        setDisableCode("");
-        queryClient.invalidateQueries({ queryKey: ["totp-status"] });
-      }
-    } catch {
-      toast({ title: "Error", description: "Failed to disable 2FA", variant: "destructive" });
-    }
-    setLoading(false);
+    toast({ title: "Coming Soon", description: "2FA setup will be available in the next update", variant: "default" });
   };
 
   const copySecret = () => {

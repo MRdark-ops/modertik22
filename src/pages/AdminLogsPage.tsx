@@ -1,31 +1,12 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 export default function AdminLogsPage() {
   const { data: logs } = useQuery({
     queryKey: ["admin-logs"],
     queryFn: async () => {
-      const { data: logs } = await supabase
-        .from("activity_logs")
-        .select("id, action, details, created_at, user_id")
-        .order("created_at", { ascending: false })
-        .limit(50);
-
-      if (!logs || logs.length === 0) return [];
-
-      const userIds = Array.from(new Set(logs.map((l) => l.user_id)));
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("user_id, full_name")
-        .in("user_id", userIds);
-
-      const profileMap = new Map((profiles ?? []).map((p) => [p.user_id, p.full_name]));
-
-      return logs.map((log) => ({
-        ...log,
-        full_name: profileMap.get(log.user_id) ?? "Unknown",
-      }));
+      return await api.getAdminLogs(50);
     },
   });
 

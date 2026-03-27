@@ -8,7 +8,7 @@ import { useState } from "react";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const ETH_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
@@ -38,11 +38,7 @@ export default function WithdrawPage() {
   const { data: withdrawals = [] } = useQuery({
     queryKey: ["withdrawals", user?.id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("withdrawals")
-        .select("*")
-        .order("created_at", { ascending: false });
-      return data || [];
+      return await api.getWithdrawals();
     },
     enabled: !!user,
   });
@@ -67,23 +63,18 @@ export default function WithdrawPage() {
     if (!user) return;
 
     setSubmitting(true);
-    const { error } = await supabase.rpc("create_withdrawal", {
-      p_amount: parsed.data.amount,
-      p_wallet_address: parsed.data.walletAddress,
-    });
-    setSubmitting(false);
-
-    if (error) {
-      const msg = error.message.includes("Insufficient balance")
-        ? "Insufficient balance"
-        : error.message;
-      toast({ title: "Error", description: msg, variant: "destructive" });
-    } else {
+    try {
+      await api.createWithdrawal(parsed.data.amount, parsed.data.walletAddress);
       toast({ title: "Withdrawal requested", description: "Your withdrawal is pending admin approval." });
       setAmount("");
       setWalletAddress("");
       queryClient.invalidateQueries({ queryKey: ["withdrawals"] });
       queryClient.invalidateQueries({ queryKey: ["profile"] });
+    } catch (error: any) {
+      const msg = error?.message || "Failed to create withdrawal";
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    } finally {
+      setSubmitting(false);
     }
   };
 

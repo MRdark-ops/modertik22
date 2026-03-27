@@ -3,7 +3,7 @@ import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Users, DollarSign, ArrowDownToLine, ArrowUpFromLine, Activity, Eye, TrendingUp } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 export default function AdminDashboard() {
@@ -12,93 +12,34 @@ export default function AdminDashboard() {
   const { data: stats } = useQuery({
     queryKey: ["admin-stats"],
     queryFn: async () => {
-    const [usersRes, depositsRes, withdrawalsRes, commissionsRes, visitsRes] = await Promise.all([
-        supabase.from("profiles").select("id", { count: "exact", head: true }),
-        supabase.from("deposits").select("amount").eq("status", "approved"),
-        supabase.from("withdrawals").select("amount, status"),
-        supabase.from("referral_commissions").select("commission_amount"),
-        supabase.from("site_visits").select("id", { count: "exact", head: true }),
-      ]);
-      const totalDeposits = depositsRes.data?.reduce((s, d) => s + Number(d.amount), 0) ?? 0;
-      const approvedWithdrawals = withdrawalsRes.data?.filter((w: any) => ["approved", "completed"].includes(w.status)) ?? [];
-      const totalWithdrawals = approvedWithdrawals.reduce((s: number, w: any) => s + Number(w.amount), 0);
-      const totalCommissions = commissionsRes.data?.reduce((s, c) => s + Number(c.commission_amount), 0) ?? 0;
-      const netEarnings = totalDeposits - totalWithdrawals;
-      return {
-        users: usersRes.count ?? 0,
-        deposits: totalDeposits,
-        withdrawals: totalWithdrawals,
-        commissions: totalCommissions,
-        visits: visitsRes.count ?? 0,
-        netEarnings,
-      };
+      return await api.getAdminStats();
     },
   });
 
   const { data: pendingDeposits } = useQuery({
     queryKey: ["admin-pending-deposits"],
     queryFn: async () => {
-      const { data: deposits } = await supabase
-        .from("deposits")
-        .select("id, amount, created_at, user_id")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false })
-        .limit(5);
-
-      if (!deposits || deposits.length === 0) return [];
-
-      const userIds = Array.from(new Set(deposits.map((d) => d.user_id)));
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("user_id, full_name")
-        .in("user_id", userIds);
-
-      const profileMap = new Map((profiles ?? []).map((p) => [p.user_id, p.full_name]));
-
-      return deposits.map((d) => ({
-        ...d,
-        full_name: profileMap.get(d.user_id) ?? "Unknown",
-      }));
+      const deposits = await api.getAllDeposits();
+      return deposits.filter((d: any) => d.status === 'pending').slice(0, 5);
     },
   });
 
   const { data: recentLogs } = useQuery({
     queryKey: ["admin-recent-activity"],
     queryFn: async () => {
-      const { data: logs } = await supabase
-        .from("activity_logs")
-        .select("id, action, details, created_at, user_id")
-        .order("created_at", { ascending: false })
-        .limit(5);
-
-      if (!logs || logs.length === 0) return [];
-
-      const userIds = Array.from(new Set(logs.map((l) => l.user_id)));
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("user_id, full_name")
-        .in("user_id", userIds);
-
-      const profileMap = new Map((profiles ?? []).map((p) => [p.user_id, p.full_name]));
-
-      return logs.map((log) => ({
-        ...log,
-        full_name: profileMap.get(log.user_id) ?? "Unknown",
-      }));
+      return await api.getAdminLogs(5);
     },
   });
 
   const handleDeposit = async (depositId: string, action: "approve" | "reject") => {
-    const { error } = await supabase.functions.invoke("approve-deposit", {
-      body: { deposit_id: depositId, action, admin_note: "" },
-    });
-    if (error) {
-      toast.error("Failed to process deposit");
-    } else {
+    try {
+      await api.approveDeposit(depositId, action === "approve");
       toast.success(`Deposit ${action}d`);
       queryClient.invalidateQueries({ queryKey: ["admin-pending-deposits"] });
       queryClient.invalidateQueries({ queryKey: ["admin-stats"] });
       queryClient.invalidateQueries({ queryKey: ["admin-recent-activity"] });
+    } catch (error) {
+      toast.error("Failed to process deposit");
     }
   };
 

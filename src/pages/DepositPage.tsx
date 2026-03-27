@@ -8,7 +8,7 @@ import { useState, useEffect } from "react";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import * as api from "@/lib/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -61,11 +61,7 @@ export default function DepositPage() {
   const { data: deposits = [] } = useQuery({
     queryKey: ["deposits", user?.id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("deposits")
-        .select("*")
-        .order("created_at", { ascending: false });
-      return data || [];
+      return await api.getDeposits();
     },
     enabled: !!user,
   });
@@ -130,44 +126,18 @@ export default function DepositPage() {
       };
       const contentType = file.type || mimeMap[ext || ""] || "image/jpeg";
 
-      // Upload directly to Supabase Storage using the user's session
-      const fileName = `${user.id}/${Date.now()}_${crypto.randomUUID()}.${ext || "jpg"}`;
-      const { data: storageData, error: storageError } = await supabase.storage
-        .from("deposit-proofs")
-        .upload(fileName, file, { contentType, upsert: false });
+      // Create deposit via API
+      const depositData = await api.createDeposit(result.data.amount, file);
 
-      if (storageError) {
-        toast({
-          title: "Upload failed",
-          description: storageError.message || "Could not upload the file. Please try again.",
-          variant: "destructive",
-        });
-        setSubmitting(false);
-        return;
-      }
-
-      const filePath = storageData.path;
-
-      const { error: insertError } = await supabase.from("deposits").insert({
-        user_id: user.id,
-        amount: result.data.amount,
-        proof_url: filePath,
-        status: "pending",
-      });
-
-      if (insertError) {
-        toast({ title: "Error", description: insertError.message, variant: "destructive" });
-      } else {
-        setLastDepositAmount(result.data.amount.toFixed(2));
-        setShowConfirmation(true);
-        setTimeout(() => setShowTelegram(true), 3000);
-        
-        setAmount("");
-        setFile(null);
-        localStorage.removeItem("depositAmountDraft");
-        
-        queryClient.invalidateQueries({ queryKey: ["deposits"] });
-      }
+      setLastDepositAmount(result.data.amount.toFixed(2));
+      setShowConfirmation(true);
+      setTimeout(() => setShowTelegram(true), 3000);
+      
+      setAmount("");
+      setFile(null);
+      localStorage.removeItem("depositAmountDraft");
+      
+      queryClient.invalidateQueries({ queryKey: ["deposits"] });
     } catch {
       toast({ title: "Error", description: "Something went wrong.", variant: "destructive" });
     }

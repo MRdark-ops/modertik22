@@ -1,7 +1,7 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useState } from "react";
 import { CheckCircle, Clock, CircleCheck, XCircle, Loader2 } from "lucide-react";
@@ -13,16 +13,7 @@ export default function AdminWithdrawalsPage() {
   const { data: withdrawals } = useQuery({
     queryKey: ["admin-withdrawals"],
     queryFn: async () => {
-      const { data: wds } = await supabase
-        .from("withdrawals")
-        .select("id, amount, status, created_at, wallet_address, user_id")
-        .order("created_at", { ascending: false });
-      if (!wds || wds.length === 0) return [];
-      const userIds = Array.from(new Set(wds.map((w) => w.user_id)));
-      const { data: profiles } = await supabase
-        .from("profiles").select("user_id, full_name").in("user_id", userIds);
-      const profileMap = new Map((profiles ?? []).map((p) => [p.user_id, p.full_name]));
-      return wds.map((w) => ({ ...w, full_name: profileMap.get(w.user_id) ?? "Unknown" }));
+      return await api.getAllWithdrawals();
     },
   });
 
@@ -35,48 +26,16 @@ export default function AdminWithdrawalsPage() {
   ) => {
     setLoading(`${withdrawalId}-${action}`);
     try {
-      const statusMap: Record<string, string> = {
-        approve: "approved",
-        reject: "rejected",
-        in_progress: "in_progress",
-        completed: "completed",
-      };
-      const newStatus = statusMap[action];
-
-      // Validate transition
-      const validFrom: Record<string, string[]> = {
-        pending: ["approved", "rejected"],
-        approved: ["in_progress"],
-        in_progress: ["completed"],
-      };
-      if (!validFrom[currentStatus]?.includes(newStatus)) {
-        throw new Error(`Cannot change from "${currentStatus}" to "${newStatus}"`);
+      if (action === "approve") {
+        await api.approveWithdrawal(withdrawalId);
+        toast.success("Withdrawal approved");
+      } else if (action === "reject") {
+        await api.rejectWithdrawal(withdrawalId);
+        toast.success("Withdrawal rejected and balance refunded");
+      } else {
+        // TODO: Add endpoints for in_progress and completed status updates
+        throw new Error(`Action "${action}" not yet implemented in API`);
       }
-
-      // Update withdrawal status
-      const { error: updateErr } = await supabase
-        .from("withdrawals").update({ status: newStatus }).eq("id", withdrawalId);
-      if (updateErr) throw new Error(updateErr.message);
-
-      // Refund balance if rejected
-      if (action === "reject") {
-        const { data: profile, error: profErr } = await supabase
-          .from("profiles").select("balance").eq("user_id", userId).single();
-        if (profErr) throw new Error(`Balance fetch failed: ${profErr.message}`);
-        const { error: balErr } = await supabase
-          .from("profiles")
-          .update({ balance: parseFloat(profile.balance ?? "0") + amount })
-          .eq("user_id", userId);
-        if (balErr) throw new Error(`Balance refund failed: ${balErr.message}`);
-      }
-
-      const labels: Record<string, string> = {
-        approve: "Withdrawal approved",
-        reject: "Withdrawal rejected and balance refunded",
-        in_progress: "Marked as in progress",
-        completed: "Marked as completed",
-      };
-      toast.success(labels[action]);
       queryClient.invalidateQueries({ queryKey: ["admin-withdrawals"] });
     } catch (err: any) {
       toast.error(`Failed: ${err.message}`);

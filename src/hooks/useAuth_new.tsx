@@ -51,14 +51,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(data.profile);
       setIsAdmin(data.isAdmin);
     } catch (error: any) {
-      // Check if the error is a transient Edge Function failure or an Authorization "Approval" rejection
       const isEdgeError = error?.message?.includes('Edge Function');
       const isApprovalError = error?.message?.includes('Approval failed');
 
       console.error('Auth verification failed:', error);
 
-      // Only force logout if it's a definitive session expiration, 
-      // not a network-level Edge Function failure.
       if (!isEdgeError && !isApprovalError) {
         api.logout();
       }
@@ -85,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsAdmin(data.isAdmin || false);
     } catch (error) {
       console.error('Login request failed:', error);
-      throw error; // Re-throw so the UI can show an error message
+      throw error;
     }
   };
 

@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 const LEVEL_COLORS: Record<number, { text: string; bg: string; border: string; label: string }> = {
@@ -48,28 +48,7 @@ export default function AdminUsersPage() {
   const { data: users } = useQuery({
     queryKey: ["admin-users"],
     queryFn: async () => {
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, user_id, full_name, balance, referral_code, created_at")
-        .order("created_at", { ascending: false });
-      if (!profiles) return [];
-
-      const { data: referrals } = await supabase
-        .from("referrals").select("referrer_id, level").eq("level", 1);
-      const refCounts: Record<string, number> = {};
-      referrals?.forEach((r) => {
-        refCounts[r.referrer_id] = (refCounts[r.referrer_id] || 0) + 1;
-      });
-
-      const { data: roles } = await supabase.from("user_roles").select("user_id, role");
-      const roleMap: Record<string, string> = {};
-      roles?.forEach((r) => { roleMap[r.user_id] = r.role; });
-
-      return profiles.map((p) => ({
-        ...p,
-        referrals: refCounts[p.user_id] || 0,
-        role: roleMap[p.user_id] || "user",
-      }));
+      return await api.getAdminUsers();
     },
   });
 
@@ -144,19 +123,25 @@ export default function AdminUsersPage() {
   // ── User actions ────────────────────────────────────────────────────────────
   const handleUserAction = async (userId: string, action: "promote" | "demote" | "delete") => {
     const confirmMsg =
-      action === "delete" ? "هل أنت متأكد من حذف هذا المستخدم؟"
-      : action === "promote" ? "هل تريد ترقية هذا المستخدم إلى أدمن؟"
-      : "هل تريد تخفيض هذا المستخدم من أدمن؟";
+      action === "delete" ? "Are you sure you want to delete this user?"
+      : action === "promote" ? "Do you want to promote this user to admin?"
+      : "Do you want to demote this user from admin?";
     if (!confirm(confirmMsg)) return;
 
-    const { error } = await supabase.functions.invoke("manage-user-role", {
-      body: { target_user_id: userId, action },
-    });
-    if (error) toast.error("فشلت العملية");
-    else {
-      const msgs = { promote: "تمت الترقية بنجاح", demote: "تم التخفيض بنجاح", delete: "تم حذف المستخدم" };
+    try {
+      if (action === "promote") {
+        await api.promoteUserToAdmin(userId);
+      } else if (action === "demote") {
+        await api.demoteAdminToUser(userId);
+      } else {
+        throw new Error("User deletion not yet implemented in API");
+      }
+      
+      const msgs = { promote: "User promoted successfully", demote: "User demoted successfully", delete: "User deleted" };
       toast.success(msgs[action]);
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    } catch (err: any) {
+      toast.error(err.message || "Action failed");
     }
   };
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { TrendingUp, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import authBg from "@/assets/auth-bg.jpg";
 
 const registerSchema = z.object({
@@ -28,6 +28,7 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { register } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,26 +44,21 @@ export default function RegisterPage() {
     }
 
     setSubmitting(true);
-    const { error } = await supabase.auth.signUp({
-      email: result.data.email,
-      password: result.data.password,
-      options: {
-        emailRedirectTo: window.location.origin,
-        data: {
-          full_name: result.data.fullName,
-          referral_code: result.data.referralCode || undefined,
-        },
-      },
-    });
-    setSubmitting(false);
 
-    if (error) {
+    try {
+      await register(
+        result.data.email,
+        result.data.password,
+        result.data.fullName,
+        result.data.referralCode || undefined
+      );
+      toast({ title: "Success", description: "Account created successfully! Redirecting to dashboard..." });
+      setTimeout(() => navigate("/dashboard"), 1500);
+    } catch (error: any) {
       toast({ title: "Registration failed", description: error.message, variant: "destructive" });
-      return;
+    } finally {
+      setSubmitting(false);
     }
-
-    toast({ title: "Account created!", description: "Please check your email to verify your account before signing in." });
-    navigate("/login");
   };
 
   const update = (key: string, value: string) => setForm(f => ({ ...f, [key]: value }));

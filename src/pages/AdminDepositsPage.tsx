@@ -1,7 +1,7 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useState } from "react";
 import {
@@ -22,67 +22,34 @@ export default function AdminDepositsPage() {
   const { data: deposits } = useQuery({
     queryKey: ["admin-deposits"],
     queryFn: async () => {
-      const { data: deps } = await supabase
-        .from("deposits")
-        .select("id, amount, status, created_at, proof_url, user_id")
-        .order("created_at", { ascending: false });
-      if (!deps || deps.length === 0) return [];
-
-      const userIds = Array.from(new Set(deps.map((d) => d.user_id)));
-      const [profilesRes, commissionsRes] = await Promise.all([
-        supabase.from("profiles").select("user_id, full_name, referred_by, balance").in("user_id", userIds),
-        supabase.from("referral_commissions").select("deposit_id").in("deposit_id", deps.map((d) => d.id)),
-      ]);
-
-      const profileMap = new Map(
-        (profilesRes.data ?? []).map((p) => [p.user_id, p])
-      );
-      const paidDeposits = new Set<string>(
-        (commissionsRes.data ?? []).map((c) => c.deposit_id).filter(Boolean) as string[]
-      );
-
-      return deps.map((d) => ({
-        ...d,
-        full_name: profileMap.get(d.user_id)?.full_name ?? "Unknown",
-        balance: profileMap.get(d.user_id)?.balance ?? 0,
-        referred_by: profileMap.get(d.user_id)?.referred_by ?? null,
-        has_commissions: paidDeposits.has(d.id),
-      }));
+      return await api.getAllDeposits();
     },
   });
 
   const handleViewProof = async (path: string) => {
-    const { data } = await supabase.storage.from("deposit-proofs").createSignedUrl(path, 300);
-    if (data?.signedUrl) { setProofUrl(data.signedUrl); setProofOpen(true); }
-    else toast.error("Failed to load proof image");
+    if (path.startsWith('http')) {
+      setProofUrl(path);
+      setProofOpen(true);
+    } else {
+      toast.error("Invalid proof image URL");
+    }
   };
 
-  // ── تم تحسين دالة الاتصال بالـ API ──────────────────────────────────────────────────
   const callAdminAPI = async (depositId: string, action: "approve" | "reject" | "delete" | "retry_commissions") => {
-    // 1. محاولة استدعاء الدالة
-    const { data, error } = await supabase.functions.invoke("admin-deposit", {
-      body: { deposit_id: depositId, action },
-    });
-
-    // 2. التعامل مع أخطاء الاتصال (مثل Failed to send request)
-    if (error) {
-      console.error("Edge Function Network Error:", error);
-      throw new Error(error.message || "Network error: Could not reach Edge Function. Check if function is deployed.");
+    switch (action) {
+      case "approve":
+        return await api.approveDeposit(depositId);
+      case "reject":
+        return await api.rejectDeposit(depositId);
+      case "delete":
+        // TODO: Add delete endpoint to API
+        throw new Error("Delete not yet implemented in API");
+      case "retry_commissions":
+        // TODO: Add retry commissions endpoint to API
+        throw new Error("Retry commissions not yet implemented in API");
+      default:
+        throw new Error("Unknown action");
     }
-
-    // 3. التعامل مع الأخطاء المنطقية التي ترجعها الدالة (مثل RLS أو مشاكل قاعدة البيانات)
-    // هذا هو الجزء الذي يحل مشكلة "تم الحذف وهو لم يُحذف"
-    if (data && data.error) {
-      console.error("Edge Function Logic Error:", data.error);
-      throw new Error(data.error || "The function returned a logical error.");
-    }
-
-    // 4. التأكد من وجود بيانات
-    if (!data) {
-      throw new Error("No response received from function.");
-    }
-
-    return data;
   };
 
   // ── Approve ───────────────────────────────────────────────────────────────

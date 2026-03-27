@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { TrendingUp, Eye, EyeOff, Shield } from "lucide-react";
+import { TrendingUp, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import authBg from "@/assets/auth-bg.jpg";
 
 const loginSchema = z.object({
@@ -20,10 +20,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [needs2FA, setNeeds2FA] = useState(false);
-  const [totpCode, setTotpCode] = useState("");
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { login, isAdmin } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,67 +40,20 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
-      // Server-side atomic auth: password + TOTP verified BEFORE session is returned
-      const authRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-with-totp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: result.data.email,
-          password: result.data.password,
-          totp_code: needs2FA ? totpCode : undefined,
-        }),
-      });
-
-      const authData = await authRes.json();
-
-      // If 2FA is required but no code provided yet
-      if (authData.requires_totp && !needs2FA) {
-        setNeeds2FA(true);
-        setSubmitting(false);
-        return;
-      }
-
-      if (authData.error) {
-        toast({ title: "Login failed", description: authData.error, variant: "destructive" });
-        if (needs2FA) {
-          setTotpCode("");
-        }
-        setSubmitting(false);
-        return;
-      }
-
-      if (!authData.session) {
-        toast({ title: "Login failed", description: "Invalid response from server.", variant: "destructive" });
-        setSubmitting(false);
-        return;
-      }
-
-      // Set session from server response — session only exists AFTER all verification passed
-      const { data: existingSessionData } = await supabase.auth.getSession();
-      const existingAccessToken = existingSessionData.session?.access_token;
-
-      if (existingAccessToken !== authData.session.access_token) {
-        await supabase.auth.setSession(authData.session);
-      }
-
-      // Navigate based on authenticated role check (fallback to server flag)
-      const { data: roles } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", authData.user?.id ?? "");
-
-      const hasAdminRole = roles?.some((r: { role: string }) => r.role === "admin") ?? false;
-
-      if (hasAdminRole || authData.is_admin) {
+      await login(result.data.email, result.data.password);
+      toast({ title: "Success", description: "Logged in successfully" });
+      
+      // Navigate based on role
+      if (isAdmin) {
         navigate("/admin");
       } else {
         navigate("/dashboard");
       }
-    } catch {
-      toast({ title: "Error", description: "Authentication failed. Please try again.", variant: "destructive" });
+    } catch (error: any) {
+      toast({ title: "Login failed", description: error.message, variant: "destructive" });
+    } finally {
+      setSubmitting(false);
     }
-
-    setSubmitting(false);
   };
 
   return (
@@ -123,7 +75,7 @@ export default function LoginPage() {
                 id="email" type="email" placeholder="you@example.com"
                 value={email} onChange={e => setEmail(e.target.value)}
                 className={`bg-secondary border-border focus:border-primary focus:ring-primary/20 h-11 ${errors.email ? 'border-destructive' : ''}`}
-                required maxLength={255} disabled={submitting || needs2FA}
+                required maxLength={255} disabled={submitting}
               />
               {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
             </div>
@@ -134,7 +86,7 @@ export default function LoginPage() {
                   id="password" type={showPassword ? "text" : "password"} placeholder="••••••••"
                   value={password} onChange={e => setPassword(e.target.value)}
                   className={`bg-secondary border-border focus:border-primary focus:ring-primary/20 h-11 pr-10 ${errors.password ? 'border-destructive' : ''}`}
-                  required maxLength={128} disabled={submitting || needs2FA}
+                  required maxLength={128} disabled={submitting}
                 />
                 {errors.password && <p className="text-xs text-destructive mt-1">{errors.password}</p>}
                 <button type="button" onClick={() => setShowPassword(!showPassword)}
@@ -144,34 +96,9 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {needs2FA && (
-              <div className="space-y-2 p-4 rounded-lg bg-primary/5 border border-primary/20 animate-fade-in">
-                <div className="flex items-center gap-2 mb-2">
-                  <Shield className="w-4 h-4 text-primary" />
-                  <Label className="text-sm font-medium text-primary">Two-Factor Authentication</Label>
-                </div>
-                <p className="text-xs text-muted-foreground mb-3">Enter the 6-digit code from your authenticator app</p>
-                <Input
-                  placeholder="000000"
-                  value={totpCode}
-                  onChange={e => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  className="bg-secondary border-border focus:border-primary h-11 text-center text-lg tracking-widest max-w-[200px]"
-                  maxLength={6}
-                  disabled={submitting}
-                  autoFocus
-                />
-              </div>
-            )}
-
-            <Button type="submit" disabled={submitting || (needs2FA && totpCode.length !== 6)} className="w-full h-11 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">
-              {submitting ? "Signing in..." : needs2FA ? "Verify & Sign In" : "Sign In"}
+            <Button type="submit" disabled={submitting} className="w-full h-11 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">
+              {submitting ? "Signing in..." : "Sign In"}
             </Button>
-
-            {needs2FA && (
-              <Button type="button" variant="ghost" className="w-full text-muted-foreground" onClick={() => { setNeeds2FA(false); setTotpCode(""); }}>
-                Back to login
-              </Button>
-            )}
           </form>
 
           <p className="text-center text-sm text-muted-foreground">

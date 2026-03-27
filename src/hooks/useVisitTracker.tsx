@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import * as api from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 
 export function useVisitTracker() {
@@ -10,17 +10,7 @@ export function useVisitTracker() {
     if (tracked.current) return;
     tracked.current = true;
 
-    // Generate or retrieve visitor ID
-    let visitorId = localStorage.getItem("visitor_id");
-    if (!visitorId) {
-      visitorId = crypto.randomUUID();
-      localStorage.setItem("visitor_id", visitorId);
-    }
-
-    supabase.from("site_visits").insert({
-      visitor_id: visitorId,
-      user_id: user?.id ?? null,
-      page: window.location.pathname,
-    }).then(() => {});
+    // TODO: Implement site visit tracking in backend API if needed
+    // This monitored user page visits in Supabase but is not critical
   }, [user]);
 }
