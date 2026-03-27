@@ -138,8 +138,13 @@ export default function DepositPage() {
       localStorage.removeItem("depositAmountDraft");
       
       queryClient.invalidateQueries({ queryKey: ["deposits"] });
-    } catch {
-      toast({ title: "Error", description: "Something went wrong.", variant: "destructive" });
+    } catch (error: any) {
+      const isEdgeError = error?.message?.includes('Edge Function') || error?.message?.includes('Approval failed');
+      toast({ 
+        title: isEdgeError ? "Connection Error" : "Error", 
+        description: isEdgeError ? "Failed to reach the server. Please try again in a few moments." : "Something went wrong.", 
+        variant: "destructive" 
+      });
     }
     setSubmitting(false);
   };
