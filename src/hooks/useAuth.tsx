@@ -55,13 +55,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isEdgeError = error?.message?.includes('Edge Function');
       const isApprovalError = error?.message?.includes('Approval failed');
 
-      console.error('Auth verification failed:', error);
-
-      // Only force logout if it's a definitive session expiration, 
-      // not a network-level Edge Function failure.
-      if (!isEdgeError && !isApprovalError) {
-        api.logout();
+      if (isEdgeError || isApprovalError) {
+        console.warn('Network or Edge connection issue. Session preserved.', error);
+        return;
       }
+
+      console.error('Session expired or invalid:', error);
+
+      api.logout();
 
       setUser(null);
       setProfile(null);

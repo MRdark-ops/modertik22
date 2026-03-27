@@ -60,7 +60,11 @@ export default function AdminDepositsPage() {
       toast.success("Deposit approved successfully");
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
-      toast.error("Approval failed: " + err.message);
+      const isEdgeError = err?.message?.includes('Edge Function') || err?.message?.includes('Approval failed');
+      toast.error(
+        isEdgeError ? "Connection failed. The request didn't reach the server." : "Approval failed: " + err.message,
+        { description: isEdgeError ? "Please check your internet connection or if the Edge Function is deployed." : undefined }
+      );
     } finally {
       setLoading(null);
     }
@@ -82,7 +86,11 @@ export default function AdminDepositsPage() {
       
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
-      toast.error("Retry failed: " + err.message);
+      const isEdgeError = err?.message?.includes('Edge Function') || err?.message?.includes('Approval failed');
+      toast.error(
+        isEdgeError ? "Server unreachable. Failed to retry commissions." : "Retry failed: " + err.message,
+        { description: isEdgeError ? "Check your network or the Edge Function status." : undefined }
+      );
     } finally {
       setLoading(null);
     }
@@ -96,7 +104,11 @@ export default function AdminDepositsPage() {
       toast.success("Deposit rejected");
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
-      toast.error("Failed to reject: " + err.message);
+      const isEdgeError = err?.message?.includes('Edge Function') || err?.message?.includes('Approval failed');
+      toast.error(
+        isEdgeError ? "Network error. Failed to reject deposit." : "Failed to reject: " + err.message,
+        { description: isEdgeError ? "The server could not be reached." : undefined }
+      );
     } finally {
       setLoading(null);
     }
@@ -112,8 +124,11 @@ export default function AdminDepositsPage() {
       setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ["admin-deposits"] });
     } catch (err: any) {
-      // الآن سيظهر سبب الفشل الحقيقي (مثل RLS Policy)
-      toast.error("Failed to delete: " + err.message);
+      const isEdgeError = err?.message?.includes('Edge Function') || err?.message?.includes('Approval failed');
+      toast.error(
+        isEdgeError ? "Connection error. Could not delete deposit." : "Delete failed: " + err.message,
+        { description: isEdgeError ? "Check your connection and try again." : undefined }
+      );
     } finally {
       setLoading(null);
     }

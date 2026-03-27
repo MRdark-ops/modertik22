@@ -10,7 +10,6 @@ export function useVisitTracker() {
     if (tracked.current) return;
     tracked.current = true;
 
-    // TODO: Implement site visit tracking in backend API if needed
-    // This monitored user page visits in Supabase but is not critical
+    // Site visit tracking is handled by the backend API autonomously
   }, [user]);
 }

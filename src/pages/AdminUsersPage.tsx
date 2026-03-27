@@ -56,33 +56,7 @@ export default function AdminUsersPage() {
   const { data: directReferrals = [], isLoading: directLoading } = useQuery({
     queryKey: ["admin-direct-referrals", selectedUser?.id],
     queryFn: async () => {
-      // Get all users whose referred_by = selectedUser.id
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("user_id, full_name, created_at")
-        .eq("referred_by", selectedUser!.id)
-        .order("created_at", { ascending: false });
-      if (!profiles || profiles.length === 0) return [];
-
-      const referredIds = profiles.map((p) => p.user_id);
-
-      // Check which ones have paid commissions (deposit approved)
-      const { data: commissions } = await supabase
-        .from("referral_commissions")
-        .select("referred_id")
-        .in("referred_id", referredIds)
-        .eq("referrer_id", selectedUser!.id)
-        .eq("level", 1)
-        .eq("status", "paid");
-
-      const verifiedSet = new Set((commissions ?? []).map((c) => c.referred_id));
-
-      return profiles.map((p): DirectReferral => ({
-        user_id: p.user_id,
-        full_name: p.full_name || "—",
-        joined_at: p.created_at,
-        is_verified: verifiedSet.has(p.user_id),
-      }));
+      return await api.getAdminUserDirectReferrals(selectedUser!.id);
     },
     enabled: !!selectedUser,
   });
@@ -91,31 +65,7 @@ export default function AdminUsersPage() {
   const { data: indirectReferrals = [], isLoading: indirectLoading } = useQuery({
     queryKey: ["admin-indirect-referrals", selectedUser?.id],
     queryFn: async () => {
-      const { data: commissions } = await supabase
-        .from("referral_commissions")
-        .select("id, referred_id, level, commission_amount, created_at")
-        .eq("referrer_id", selectedUser!.id)
-        .in("level", [2, 3, 4, 5])
-        .eq("status", "paid")
-        .order("created_at", { ascending: false });
-      if (!commissions || commissions.length === 0) return [];
-
-      const referredIds = [...new Set(commissions.map((c) => c.referred_id))];
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("user_id, full_name")
-        .in("user_id", referredIds);
-
-      const nameMap = new Map((profiles ?? []).map((p) => [p.user_id, p.full_name]));
-
-      return commissions.map((c): IndirectReferral => ({
-        id: c.id,
-        referred_id: c.referred_id,
-        full_name: nameMap.get(c.referred_id) || "—",
-        level: c.level,
-        commission_amount: Number(c.commission_amount),
-        created_at: c.created_at,
-      }));
+      return await api.getAdminUserIndirectReferrals(selectedUser!.id);
     },
     enabled: !!selectedUser,
   });
