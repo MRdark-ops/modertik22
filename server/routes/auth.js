@@ -1,6 +1,6 @@
 import express from 'express';
-import { v4 as uuidv4 } from 'uuid';
-import pool from '../db.js';
+import mongoose from 'mongoose';
+import { User, Profile, Referral, ActivityLog, LoginAttempt, Totp } from '../models.js';
 import {
   hashPassword,
   comparePassword,
@@ -13,7 +13,8 @@ const router = express.Router();
 
 // Register new user
 router.post('/register', async (req, res) => {
-  const connection = await pool.getConnection();
+  const session = await mongoose.startSession();
+  session.startTransaction();
   
   try {
     const { email, password, full_name, referral_code_input } = req.body;
@@ -28,89 +29,57 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if user exists
-    const [existing] = await connection.execute(
-      'SELECT id FROM users WHERE email = ?',
-      [email]
-    );
-
-    if (existing.length > 0) {
+    const existing = await User.findOne({ email });
+    if (existing) {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
-    // Start transaction
-    await connection.beginTransaction();
-
     try {
       // Create user
-      const userId = uuidv4();
       const passwordHash = await hashPassword(password);
-
-      await connection.execute(
-        'INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)',
-        [userId, email, passwordHash]
-      );
-
-      // Create user role
-      await connection.execute(
-        'INSERT INTO user_roles (id, user_id, role) VALUES (?, ?, ?)',
-        [uuidv4(), userId, 'user']
-      );
+      const user = new User({ email, password_hash: passwordHash });
+      await user.save({ session });
 
       // Handle referral
       let referredBy = null;
       if (referral_code_input) {
-        const [referrer] = await connection.execute(
-          'SELECT user_id FROM profiles WHERE referral_code = ?',
-          [referral_code_input]
-        );
-
-        if (referrer.length > 0) {
-          referredBy = referrer[0].user_id;
+        const referrerProfile = await Profile.findOne({ referral_code: referral_code_input });
+        if (referrerProfile) {
+          referredBy = referrerProfile.user_id;
         }
       }
 
       // Create profile
       const referralCode = generateReferralCode();
-      await connection.execute(
-        'INSERT INTO profiles (id, user_id, full_name, referral_code, referred_by) VALUES (?, ?, ?, ?, ?)',
-        [uuidv4(), userId, full_name, referralCode, referredBy]
-      );
+      const profile = new Profile({
+        user_id: user._id,
+        full_name,
+        referral_code: referralCode,
+        referred_by: referredBy
+      });
+      await profile.save({ session });
 
-      // If referrer exists, create referral record
       if (referredBy) {
-        await connection.execute(
-          'INSERT INTO referrals (id, referrer_id, referred_id, level) VALUES (?, ?, ?, ?)',
-          [uuidv4(), referredBy, userId, 1]
-        );
+        await new Referral({ referrer_id: referredBy, referred_id: user._id, level: 1 }).save({ session });
       }
 
-      // Create TOTP record
-      await connection.execute(
-        'INSERT INTO user_totp (id, user_id, secret, enabled) VALUES (?, ?, ?, ?)',
-        [uuidv4(), userId, '', false]
-      );
+      await new Totp({ user_id: user._id }).save({ session });
+      await new ActivityLog({
+        user_id: user._id,
+        action: 'user_registered',
+        details: { email, referral_code_input: !!referral_code_input }
+      }).save({ session });
 
-      // Log activity
-      await connection.execute(
-        'INSERT INTO activity_logs (id, user_id, action, details) VALUES (?, ?, ?, ?)',
-        [
-          uuidv4(),
-          userId,
-          'user_registered',
-          JSON.stringify({ email, referral_code_input: !!referral_code_input })
-        ]
-      );
-
-      await connection.commit();
+      await session.commitTransaction();
 
       // Generate token
-      const token = generateToken(userId);
+      const token = generateToken(user._id);
 
       res.json({
         message: 'User registered successfully',
         token,
         user: {
-          id: userId,
+          id: user._id,
           email,
           full_name
         },
